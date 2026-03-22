@@ -632,6 +632,20 @@ function GymDump() {
             <FeelingPicker value={feeling} onChange={updateFeeling} />
           </div>
         </Card>
+        {logged.length > 0 && (
+          <Btn variant="primary" onClick={() => {
+            const sess = getSession(activeWeekId, activeSessionId);
+            if (!sess) return;
+            const exercises = sess.exercises.filter(ex => workoutLog[ex.id]?.sets?.length > 0)
+              .map(ex => ({ name: ex.name, sets: workoutLog[ex.id].sets, feeling: workoutLog[ex.id].feeling || "normal" }));
+            if (exercises.length === 0) return;
+            const logEntry = { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: sess.name, exercises };
+            save({ ...data, logs: [...data.logs, logEntry] });
+            setView("home");
+          }} className="w-full mt-3 py-4 text-base">
+            Save Workout
+          </Btn>
+        )}
         <ProgressionChart history={allHistory} targetWeight={exDef.targetWeight || 0} />
         {history.length > 0 && (
           <div>
@@ -646,20 +660,6 @@ function GymDump() {
               </div>
             ))}
           </div>
-        )}
-        {Object.values(workoutLog).some(v => v.sets?.length > 0) && (
-          <Btn variant="primary" onClick={() => {
-            const session = getSession(activeWeekId, activeSessionId);
-            if (!session) return;
-            const exercises = session.exercises.filter(ex => workoutLog[ex.id]?.sets?.length > 0)
-              .map(ex => ({ name: ex.name, sets: workoutLog[ex.id].sets, feeling: workoutLog[ex.id].feeling || "normal" }));
-            if (exercises.length === 0) return;
-            const logEntry = { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: session.name, exercises };
-            save({ ...data, logs: [...data.logs, logEntry] });
-            setView("home");
-          }} className="w-full mt-5 py-4 text-base">
-            Save Workout
-          </Btn>
         )}
       </div>
     );
