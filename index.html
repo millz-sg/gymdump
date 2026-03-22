@@ -14,6 +14,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   html, body { background: #0a0a0a; margin: 0; padding: 0; overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
   input, textarea { -webkit-user-select: text; user-select: text; }
@@ -191,6 +192,125 @@ const LastPerf = ({ last }) => {
         {last.feeling !== "normal" && <span className={last.feeling === "strong" ? "text-emerald-500" : "text-red-400"}> ({last.feeling})</span>}
       </span>
       <span className="text-neutral-600 text-xs">— {formatDate(last.date)}</span>
+    </div>
+  );
+};
+
+const ProgressionChart = ({ history, targetWeight }) => {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+  const [range, setRange] = useState("3mo");
+
+  const filterByRange = (hist) => {
+    if (range === "all") return hist;
+    const now = new Date();
+    const cutoff = new Date();
+    if (range === "1mo") cutoff.setMonth(now.getMonth() - 1);
+    if (range === "3mo") cutoff.setMonth(now.getMonth() - 3);
+    return hist.filter(h => new Date(h.date + "T12:00:00") >= cutoff);
+  };
+
+  useEffect(() => {
+    if (!canvasRef.current || history.length === 0) return;
+    const filtered = filterByRange([...history].reverse());
+    if (filtered.length === 0) { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } return; }
+
+    const labels = filtered.map(h => formatDate(h.date));
+    const maxWeights = filtered.map(h => Math.max(...h.sets.map(s => s.weight)));
+
+    if (chartRef.current) chartRef.current.destroy();
+
+    const ctx = canvasRef.current.getContext("2d");
+    chartRef.current = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Weight (lbs)",
+            data: maxWeights,
+            borderColor: "#10b981",
+            backgroundColor: "rgba(16, 185, 129, 0.1)",
+            borderWidth: 2.5,
+            pointBackgroundColor: "#10b981",
+            pointBorderColor: "#10b981",
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            tension: 0.3,
+            fill: true,
+          },
+          ...(targetWeight > 0 ? [{
+            label: "Target",
+            data: Array(labels.length).fill(targetWeight),
+            borderColor: "rgba(16, 185, 129, 0.3)",
+            borderWidth: 1.5,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false,
+          }] : []),
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { intersect: false, mode: "index" },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#262626",
+            titleColor: "#a3a3a3",
+            bodyColor: "#fff",
+            bodyFont: { family: "ui-monospace, monospace", size: 13 },
+            borderColor: "#404040",
+            borderWidth: 1,
+            padding: 10,
+            displayColors: false,
+            callbacks: { label: (ctx) => `${ctx.parsed.y} lbs` },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { color: "#525252", font: { size: 10 }, maxRotation: 0, maxTicksLimit: 6 },
+            grid: { display: false },
+            border: { display: false },
+          },
+          y: {
+            ticks: { color: "#525252", font: { size: 10, family: "ui-monospace, monospace" }, callback: v => v + "lb" },
+            grid: { color: "rgba(64, 64, 64, 0.3)" },
+            border: { display: false },
+            beginAtZero: false,
+          },
+        },
+      },
+    });
+
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [history, range]);
+
+  if (history.length < 2) return null;
+
+  const ranges = [
+    { key: "1mo", label: "1M" },
+    { key: "3mo", label: "3M" },
+    { key: "all", label: "All" },
+  ];
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2 px-1">
+        <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Progression</p>
+        <div className="flex gap-1">
+          {ranges.map(r => (
+            <button key={r.key} onClick={() => setRange(r.key)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${range === r.key ? "bg-emerald-600 text-white" : "bg-neutral-800 text-neutral-500 active:bg-neutral-700"}`}>{r.label}</button>
+          ))}
+        </div>
+      </div>
+      <Card>
+        <div style={{ height: "180px", position: "relative" }}>
+          <canvas ref={canvasRef}></canvas>
+        </div>
+      </Card>
     </div>
   );
 };
@@ -406,7 +526,8 @@ function GymDump() {
     if (!exDef) return null;
     const logged = workoutLog[exDef.id]?.sets || [];
     const feeling = workoutLog[exDef.id]?.feeling || "normal";
-    const history = getExerciseHistory(exDef.name, data.logs).slice(0, 8);
+    const allHistory = getExerciseHistory(exDef.name, data.logs);
+    const history = allHistory.slice(0, 8);
     const nudge = getProgressionNudge(exDef.name, data.logs, exDef.progressionRule || {});
     const rule = { ...DEFAULT_RULE, ...exDef.progressionRule };
     const lastPerf = getLastPerformance(exDef.name, data.logs);
@@ -535,6 +656,7 @@ function GymDump() {
             <FeelingPicker value={feeling} onChange={updateFeeling} />
           </div>
         </Card>
+        <ProgressionChart history={allHistory} targetWeight={exDef.targetWeight || 0} />
         {history.length > 0 && (
           <div>
             <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">History</p>
