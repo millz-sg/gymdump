@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GymDump">
+<meta name="theme-color" content="#0a0a0a">
+<title>GymDump</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj48cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgcng9IjQwIiBmaWxsPSIjMGE5OTZlIi8+PHRleHQgeD0iOTAiIHk9IjEyMCIgZm9udC1mYW1pbHk9InN5c3RlbS11aSIgZm9udC1zaXplPSI5MCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  html, body { background: #0a0a0a; margin: 0; padding: 0; overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
+  input, textarea { -webkit-user-select: text; user-select: text; }
+  input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const STORAGE_KEY = "gymdump-data-v2";
+const uid = () => Math.random().toString(36).slice(2, 9);
+const DEFAULT_RULE = { weightIncrement: 5, targetSets: 3, targetReps: 8, sessionsBeforeNudge: 2 };
+
+const mkEx = (name, sets, reps, targetWeight, inc, nudge, notes = "") => ({
+  id: uid(), name, defaultSets: sets, defaultReps: reps, targetWeight, notes,
+  progressionRule: { weightIncrement: inc, targetSets: sets, targetReps: reps, sessionsBeforeNudge: nudge },
+});
+
+const INITIAL_DATA = {
+  program: { weeks: [
+    { id: "w1", name: "Week 1", sessions: [
+      { id: "w1s1", name: "Upper 1", exercises: [
+        mkEx("Incline DB Bench", 3, 10, 65, 5, 2, "be flat option"),
+        mkEx("Lat Pull Down Neutral", 3, 10, 147.5, 5, 2, "neutral medium mag grip"),
+        mkEx("Overhead Press", 3, 10, 35, 5, 2, "dumb / 25-30 bar option"),
+        mkEx("Long Pull", 3, 10, 135, 5, 2, "narrow grip"),
+        mkEx("Cable Overhead Push / Skull Crusher", 3, 12, 60, 2.5, 3, "60 white cable / 42.5+1.5 LF / SC barbell 60"),
+        mkEx("Iso Lat Bench Press", 3, 10, 70, 5, 2, "plate + 25-30"),
+      ]},
+      { id: "w1s2", name: "Lower", exercises: [
+        mkEx("Leg Press", 3, 12, 325, 10, 2, "3 plates + 10 per side"),
+        mkEx("Hamstring Curl", 3, 10, 120, 5, 2, ""),
+        mkEx("Leg Extension", 3, 15, 150, 5, 2, ""),
+        mkEx("Calf Raises", 3, 10, 50, 5, 3, "seated or standing / 2 plate + 10"),
+        mkEx("RDL or HA", 3, 10, 65, 5, 2, "slow tempo"),
+        mkEx("Hack Squat", 3, 8, 55, 10, 2, "1 plate + 10"),
+        mkEx("Hip Adduction", 3, 10, 110, 5, 3, "machine"),
+      ]},
+      { id: "w1s3", name: "Upper 2", exercises: [
+        mkEx("Vertical Traction Reverse", 3, 10, 205, 5, 2, "iso machine"),
+        mkEx("ISO Lateral Low Row", 3, 10, 95, 5, 2, "per side iso"),
+        mkEx("Pec Fly", 3, 10, 150, 5, 3, "cable: 32+3 / 60 white 2 below 4 / cybex 32.5 #2 down #6 out / peck deck 145-150"),
+        mkEx("Lateral Raises", 3, 15, 12, 2.5, 3, "7.5+3 cable / rack 10s / 12 cybex"),
+        mkEx("Preacher Curl Machine", 3, 10, 80, 5, 2, ""),
+        mkEx("DB Shrugs (Lean Forward)", 3, 12, 60, 5, 2, "60 DB / 55 each side on bar"),
+        mkEx("DB Bench Flat", 3, 10, 75, 5, 2, ""),
+      ]},
+    ]},
+    { id: "w2", name: "Week 2", sessions: [
+      { id: "w2s1", name: "Upper 1", exercises: [
+        mkEx("Wide Grip Lat Pull Down", 3, 10, 135, 5, 2, ""),
+        mkEx("Incline DB Bench", 3, 10, 65, 5, 2, "be flat option"),
+        mkEx("Upright Rows", 3, 10, 60, 5, 2, "to failure"),
+        mkEx("Long Pull", 3, 10, 130, 5, 2, "narrow grip"),
+        mkEx("Tri Cable Arm Extension", 3, 10, 62.5, 2.5, 3, "100 white / 62.5+3 cable / 62.5 cybex / 22.5+1.5 single"),
+        mkEx("Bi Reverse Bar / Cable Curl", 3, 10, 40, 2.5, 3, "ez bar / cybex 37+3 / 60 white cable"),
+      ]},
+      { id: "w2s2", name: "Lower", exercises: [
+        mkEx("Leg Press", 3, 12, 315, 10, 2, "3 plates per side"),
+        mkEx("Hamstring Curl", 3, 10, 120, 5, 2, ""),
+        mkEx("Leg Extension", 3, 15, 150, 5, 2, ""),
+        mkEx("Calf Raises", 3, 10, 50, 5, 3, "seated or standing / 2 plate + 10"),
+        mkEx("RDL or HA", 3, 10, 65, 5, 2, "slow tempo"),
+        mkEx("Hack Squat", 3, 8, 55, 10, 2, "1 plate + 10"),
+        mkEx("Hip Adduction", 3, 10, 110, 5, 3, "machine"),
+      ]},
+      { id: "w2s3", name: "Upper 2", exercises: [
+        mkEx("Pull Ups", 3, 10, 0, 0, 3, "bodyweight / max reps"),
+        mkEx("T Bar Row", 3, 10, 70, 5, 2, "1 plate + 25-30"),
+        mkEx("Pec Fly", 3, 10, 145, 5, 3, "cable: 32+3 / 60 white 2 below 4 / cybex 32.5-36 #2 down #6 out / peck deck 145"),
+        mkEx("Lateral Raises", 3, 15, 12, 2.5, 3, "7.5+3 cable / rack 10s / 12 cybex"),
+        mkEx("Preacher Curl Machine", 3, 10, 75, 5, 2, ""),
+        mkEx("DB Bench Flat / Dips", 3, 10, 75, 5, 2, "or dips"),
+      ]},
+    ]},
+  ]},
+  logs: [],
+};
+
+// localStorage helpers
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function saveData(d) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch(e) { console.error(e); }
+}
+
+function getExerciseHistory(name, logs) {
+  const entries = [];
+  for (const log of logs) {
+    for (const ex of log.exercises) {
+      if (ex.name.toLowerCase() === name.toLowerCase()) {
+        entries.push({ date: log.date, sessionName: log.sessionName, sets: ex.sets, feeling: ex.feeling });
+      }
+    }
+  }
+  return entries.sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+function getLastPerformance(name, logs) {
+  const hist = getExerciseHistory(name, logs);
+  return hist.length > 0 ? hist[0] : null;
+}
+function getProgressionNudge(name, logs, rule) {
+  const r = { ...DEFAULT_RULE, ...rule };
+  if (r.weightIncrement === 0) return null;
+  const hist = getExerciseHistory(name, logs);
+  if (hist.length < r.sessionsBeforeNudge) return null;
+  const recent = hist.slice(0, r.sessionsBeforeNudge);
+  const w = recent[0].sets[0]?.weight;
+  if (!w) return null;
+  const allHit = recent.every(h => h.sets.length >= r.targetSets && h.sets.every(s => s.weight === w && s.reps >= r.targetReps));
+  if (allHit) return { current: w, suggested: w + r.weightIncrement, sessions: r.sessionsBeforeNudge };
+  return null;
+}
+function formatDate(d) { return new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
+function today() { return new Date().toISOString().split("T")[0]; }
+
+const Btn = ({ children, onClick, variant = "primary", className = "", ...rest }) => {
+  const base = "font-semibold rounded-xl transition-all active:scale-95 ";
+  const v = { primary: "bg-emerald-600 text-white px-5 py-3 text-base", secondary: "bg-neutral-800 text-neutral-200 px-4 py-2.5 text-sm", ghost: "text-neutral-400 px-3 py-2 text-sm", danger: "bg-red-900/40 text-red-400 px-4 py-2.5 text-sm" };
+  return <button onClick={onClick} className={base + v[variant] + " " + className} {...rest}>{children}</button>;
+};
+const Card = ({ children, className = "", onClick }) => (
+  <div onClick={onClick} className={`bg-neutral-900 rounded-2xl p-4 ${onClick ? "cursor-pointer active:bg-neutral-800" : ""} ${className}`}>{children}</div>
+);
+const Header = ({ title, onBack, right }) => (
+  <div className="flex items-center justify-between px-1 py-3 mb-2">
+    <div className="flex items-center gap-3 min-w-0 flex-1">
+      {onBack && <button onClick={onBack} className="text-neutral-400 text-2xl leading-none active:text-white p-1 flex-shrink-0">‹</button>}
+      <h1 className="text-xl font-bold text-white tracking-tight truncate">{title}</h1>
+    </div>
+    {right && <div className="flex-shrink-0 ml-2">{right}</div>}
+  </div>
+);
+const FeelingPicker = ({ value, onChange }) => {
+  const opts = [
+    { key: "weak", label: "Weak", icon: "↓", color: "text-red-400 bg-red-500/15 border-red-500/30" },
+    { key: "normal", label: "Normal", icon: "—", color: "text-neutral-300 bg-neutral-700 border-neutral-600" },
+    { key: "strong", label: "Strong", icon: "↑", color: "text-emerald-400 bg-emerald-500/15 border-emerald-500/30" },
+  ];
+  return (
+    <div className="flex gap-2">
+      {opts.map(o => (
+        <button key={o.key} onClick={() => onChange(o.key)}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all ${value === o.key ? o.color : "text-neutral-500 bg-neutral-800/50 border-neutral-800"}`}>{o.icon} {o.label}</button>
+      ))}
+    </div>
+  );
+};
+const Notes = ({ text }) => text ? <p className="text-neutral-600 text-xs mt-0.5 italic">{text}</p> : null;
+const TargetBadge = ({ ex }) => {
+  if (!ex.targetWeight || ex.targetWeight === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <span className="text-emerald-500 text-xs font-semibold">TARGET</span>
+      <span className="text-emerald-400 text-sm font-mono font-medium">{ex.targetWeight}lbs × {ex.defaultSets}×{ex.defaultReps}</span>
+    </div>
+  );
+};
+const LastPerf = ({ last }) => {
+  if (!last) return null;
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <span className="text-neutral-500 text-xs font-semibold">LAST</span>
+      <span className="text-neutral-400 text-xs font-mono">
+        {last.sets.map(s => `${s.weight}×${s.reps}`).join(", ")}
+        {last.feeling !== "normal" && <span className={last.feeling === "strong" ? "text-emerald-500" : "text-red-400"}> ({last.feeling})</span>}
+      </span>
+      <span className="text-neutral-600 text-xs">— {formatDate(last.date)}</span>
+    </div>
+  );
+};
+
+function GymDump() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState("home");
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [activeExName, setActiveExName] = useState(null);
+  const [activeWeekId, setActiveWeekId] = useState(null);
+  const [editSessionId, setEditSessionId] = useState(null);
+  const [editWeekId, setEditWeekId] = useState(null);
+  const [editExercise, setEditExercise] = useState(null);
+  const [workoutLog, setWorkoutLog] = useState({});
+  const weightRef = useRef(null);
+  const repsRef = useRef(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  useEffect(() => {
+    const existing = loadData();
+    if (existing) { setData(existing); } else { setData(INITIAL_DATA); saveData(INITIAL_DATA); }
+    setLoading(false);
+  }, []);
+
+  const save = useCallback((newData) => {
+    setData(newData);
+    saveData(newData);
+  }, []);
+
+  const resetToDefaults = () => { save(INITIAL_DATA); setConfirmReset(false); setView("home"); };
+
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `gymdump-backup-${today()}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = () => {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = ".json";
+    input.onchange = (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const imported = JSON.parse(ev.target.result);
+          if (imported.program && imported.logs !== undefined) { save(imported); alert("Data restored!"); }
+          else { alert("Invalid backup file."); }
+        } catch { alert("Error reading file."); }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  const getSession = (weekId, sessionId) => {
+    const week = data.program.weeks.find(w => w.id === weekId);
+    return week?.sessions.find(s => s.id === sessionId);
+  };
+
+  // HOME
+  const HomeView = () => {
+    const recentLogs = [...data.logs].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
+    const totalSessions = data.logs.length;
+    return (
+      <div>
+        <Header title="GymDump"
+          right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => setView("history")}>History</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit</Btn></div>} />
+        {totalSessions > 0 && (
+          <div className="bg-neutral-900 rounded-2xl p-3 mb-5 flex items-center justify-between">
+            <span className="text-neutral-400 text-sm">{totalSessions} session{totalSessions !== 1 ? "s" : ""} logged</span>
+            <span className="text-emerald-400 text-sm font-mono">{data.logs.reduce((a, l) => a + l.exercises.reduce((b, e) => b + e.sets.length, 0), 0)} total sets</span>
+          </div>
+        )}
+        {data.program.weeks.map(week => (
+          <div key={week.id} className="mb-5">
+            <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">{week.name}</p>
+            <div className="flex gap-2">
+              {week.sessions.map(sess => {
+                const exCount = sess.exercises.length;
+                const lastLog = [...data.logs].reverse().find(l => l.sessionId === sess.id);
+                return (
+                  <Card key={sess.id} className="flex-1 text-center"
+                    onClick={() => {
+                      if (exCount === 0) { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); }
+                      else { setActiveWeekId(week.id); setActiveSessionId(sess.id); setWorkoutLog({}); setView("workout"); }
+                    }}>
+                    <p className="text-white font-semibold text-sm">{sess.name}</p>
+                    <p className="text-neutral-500 text-xs mt-0.5">{exCount} ex</p>
+                    {lastLog && <p className="text-neutral-600 text-xs mt-1">{formatDate(lastLog.date)}</p>}
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {recentLogs.length > 0 && (
+          <div className="mt-6">
+            <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Recent Sessions</p>
+            {recentLogs.map((log, i) => (
+              <div key={i} className="flex items-center justify-between py-3 border-b border-neutral-800/60">
+                <div><span className="text-white text-sm font-medium">{log.sessionName}</span><span className="text-neutral-500 text-xs ml-2">{formatDate(log.date)}</span></div>
+                <span className="text-neutral-600 text-xs">{log.exercises.length} exercises</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // HISTORY
+  const HistoryView = () => {
+    const allNames = new Set();
+    data.program.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => allNames.add(e.name))));
+    data.logs.forEach(l => l.exercises.forEach(e => allNames.add(e.name)));
+    const sorted = [...allNames].sort();
+    return (
+      <div>
+        <Header title="Exercise History" onBack={() => setView("home")} />
+        {sorted.map(name => {
+          const hist = getExerciseHistory(name, data.logs);
+          const last = hist[0];
+          return (
+            <Card key={name} className="mb-2" onClick={() => { setActiveExName(name); setView("exerciseHistory"); }}>
+              <div className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-medium truncate">{name}</p>
+                  {last ? <p className="text-neutral-500 text-xs font-mono mt-0.5">Last: {last.sets.map(s => `${s.weight}×${s.reps}`).join(", ")} — {formatDate(last.date)}</p>
+                    : <p className="text-neutral-600 text-xs mt-0.5">No logs yet</p>}
+                </div>
+                <span className="text-neutral-600 flex-shrink-0 ml-2">›</span>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // EXERCISE HISTORY
+  const ExerciseHistoryView = () => {
+    const hist = getExerciseHistory(activeExName, data.logs);
+    return (
+      <div>
+        <Header title={activeExName} onBack={() => setView("history")} />
+        {hist.length === 0 ? <Card className="text-center"><p className="text-neutral-500 text-sm">No logs yet</p></Card>
+        : hist.map((h, i) => (
+          <div key={i} className="flex items-center justify-between py-3 border-b border-neutral-800/60">
+            <div><span className="text-neutral-400 text-sm">{formatDate(h.date)}</span><span className="text-neutral-600 text-xs ml-2">{h.sessionName}</span></div>
+            <div className="text-right">
+              <span className="text-white text-sm font-mono">{h.sets.map(s => `${s.weight}×${s.reps}`).join(", ")}</span>
+              {h.feeling !== "normal" && <span className={`text-xs ml-1.5 ${h.feeling === "strong" ? "text-emerald-400" : "text-red-400"}`}>{h.feeling === "strong" ? "↑" : "↓"}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // WORKOUT
+  const WorkoutView = () => {
+    const session = getSession(activeWeekId, activeSessionId);
+    if (!session) return null;
+    const finishWorkout = () => {
+      const exercises = session.exercises.filter(ex => workoutLog[ex.id]?.sets?.length > 0)
+        .map(ex => ({ name: ex.name, sets: workoutLog[ex.id].sets, feeling: workoutLog[ex.id].feeling || "normal" }));
+      if (exercises.length === 0) { setView("home"); return; }
+      const logEntry = { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: session.name, exercises };
+      save({ ...data, logs: [...data.logs, logEntry] });
+      setView("home");
+    };
+    const loggedCount = Object.values(workoutLog).filter(v => v.sets?.length > 0).length;
+    return (
+      <div>
+        <Header title={session.name} onBack={() => setView("home")}
+          right={<Btn variant="primary" onClick={finishWorkout} className="text-sm px-4 py-2">Save{loggedCount > 0 ? ` (${loggedCount})` : ""}</Btn>} />
+        <div className="space-y-3">
+          {session.exercises.map(ex => {
+            const last = getLastPerformance(ex.name, data.logs);
+            const nudge = getProgressionNudge(ex.name, data.logs, ex.progressionRule || {});
+            const logged = workoutLog[ex.id]?.sets || [];
+            return (
+              <Card key={ex.id} onClick={() => { setActiveExName(ex.name); setView("logExercise"); }}>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-semibold">{ex.name}</p>
+                    <TargetBadge ex={ex} />
+                    <LastPerf last={last} />
+                    {!last && !ex.targetWeight && <p className="text-neutral-600 text-xs mt-1">{ex.defaultSets}×{ex.defaultReps} target</p>}
+                    <Notes text={ex.notes} />
+                    {nudge && <p className="text-amber-400 text-xs mt-1 font-medium">↑ Try {nudge.suggested}lbs</p>}
+                  </div>
+                  <div className="text-right flex-shrink-0 ml-2">
+                    {logged.length > 0 ? <span className="text-emerald-400 text-xs font-mono">{logged.length} sets ✓</span> : <span className="text-neutral-600 text-lg">›</span>}
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // LOG EXERCISE
+  const LogExerciseView = () => {
+    const session = getSession(activeWeekId, activeSessionId);
+    const exDef = session?.exercises.find(e => e.name === activeExName);
+    if (!exDef) return null;
+    const logged = workoutLog[exDef.id]?.sets || [];
+    const feeling = workoutLog[exDef.id]?.feeling || "normal";
+    const history = getExerciseHistory(exDef.name, data.logs).slice(0, 8);
+    const nudge = getProgressionNudge(exDef.name, data.logs, exDef.progressionRule || {});
+    const rule = { ...DEFAULT_RULE, ...exDef.progressionRule };
+    const lastPerf = getLastPerformance(exDef.name, data.logs);
+    const targetSets = exDef.defaultSets || 3;
+    const currentSetNum = logged.length + 1;
+    const allDone = logged.length >= targetSets;
+    const prefillWeight = exDef.targetWeight || lastPerf?.sets?.[0]?.weight || "";
+
+    useEffect(() => {
+      if (weightRef.current) weightRef.current.value = String(prefillWeight);
+      if (repsRef.current) repsRef.current.value = "";
+    }, [activeExName]);
+
+    const preserveInputs = (fn) => {
+      const curW = weightRef.current?.value || "";
+      const curR = repsRef.current?.value || "";
+      fn();
+      requestAnimationFrame(() => {
+        if (weightRef.current) weightRef.current.value = curW;
+        if (repsRef.current) repsRef.current.value = curR;
+      });
+    };
+    const addSet = () => {
+      const w = parseFloat(weightRef.current?.value);
+      const r = parseInt(repsRef.current?.value);
+      if (!w || !r) return;
+      const curWeight = weightRef.current?.value || "";
+      const newSets = [...logged, { weight: w, reps: r }];
+      setWorkoutLog({ ...workoutLog, [exDef.id]: { ...workoutLog[exDef.id], sets: newSets, feeling } });
+      requestAnimationFrame(() => {
+        if (weightRef.current) weightRef.current.value = curWeight;
+        if (repsRef.current) repsRef.current.value = "";
+      });
+    };
+    const removeSet = (idx) => { preserveInputs(() => {
+      const newSets = logged.filter((_, i) => i !== idx);
+      setWorkoutLog({ ...workoutLog, [exDef.id]: { ...workoutLog[exDef.id], sets: newSets, feeling } });
+    }); };
+    const updateFeeling = (f) => { preserveInputs(() => {
+      setWorkoutLog({ ...workoutLog, [exDef.id]: { ...workoutLog[exDef.id], sets: logged, feeling: f } });
+    }); };
+    const fillWeight = (w) => { if (weightRef.current) weightRef.current.value = String(w); };
+    const lastWeights = [...new Set(history.flatMap(h => h.sets.map(s => s.weight)))].sort((a, b) => b - a).slice(0, 3);
+    const setLabel = allDone ? `Bonus Set ${currentSetNum}` : `Set ${currentSetNum} of ${targetSets}`;
+
+    return (
+      <div>
+        <Header title={exDef.name} onBack={() => setView("workout")} />
+        <div className="bg-neutral-900 rounded-2xl p-3 mb-3 space-y-1.5">
+          {exDef.targetWeight > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-emerald-500 text-xs font-bold uppercase tracking-wider">Target</span>
+              <span className="text-emerald-400 text-sm font-mono font-semibold">{exDef.targetWeight}lbs × {exDef.defaultSets}×{exDef.defaultReps}</span>
+            </div>
+          )}
+          {lastPerf && (
+            <div className="flex items-center justify-between">
+              <span className="text-neutral-500 text-xs font-bold uppercase tracking-wider">Last</span>
+              <div className="text-right">
+                <span className="text-neutral-400 text-xs font-mono">{lastPerf.sets.map(s => `${s.weight}×${s.reps}`).join(", ")}</span>
+                {lastPerf.feeling !== "normal" && <span className={`text-xs ml-1 ${lastPerf.feeling === "strong" ? "text-emerald-400" : "text-red-400"}`}>{lastPerf.feeling === "strong" ? "↑" : "↓"}</span>}
+                <span className="text-neutral-600 text-xs ml-1.5">{formatDate(lastPerf.date)}</span>
+              </div>
+            </div>
+          )}
+          {exDef.notes ? <Notes text={exDef.notes} /> : null}
+        </div>
+        {nudge && (
+          <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-3 mb-3">
+            <p className="text-amber-400 text-sm font-medium">↑ You've hit {nudge.current}lbs for {nudge.sessions} sessions — bump target to {nudge.suggested}lbs?</p>
+          </div>
+        )}
+        <Card className="mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className={`text-sm font-bold tracking-tight ${allDone ? "text-emerald-400" : "text-white"}`}>{setLabel}</p>
+            {allDone && <span className="text-emerald-400 text-xs">✓ Target hit</span>}
+          </div>
+          <div className="flex gap-1.5 mb-4">
+            {Array.from({ length: Math.max(targetSets, logged.length + 1) }, (_, i) => (
+              <div key={i} className={`h-1.5 flex-1 rounded-full transition-all ${i < logged.length ? "bg-emerald-500" : i === logged.length ? "bg-neutral-600" : "bg-neutral-800"}`} />
+            ))}
+          </div>
+          {lastWeights.length > 0 && (
+            <div className="flex gap-2 mb-3 flex-wrap">
+              {lastWeights.map(w => (
+                <button key={w} onClick={() => fillWeight(w)} className="px-3 py-1.5 rounded-lg text-sm font-mono bg-neutral-800 text-neutral-400 active:bg-neutral-700">{w}</button>
+              ))}
+              {exDef.targetWeight > 0 && !lastWeights.includes(exDef.targetWeight) && (
+                <button onClick={() => fillWeight(exDef.targetWeight)} className="px-3 py-1.5 rounded-lg text-sm font-mono bg-emerald-900/40 text-emerald-400 active:bg-emerald-900/60 border border-emerald-500/30">{exDef.targetWeight}</button>
+              )}
+            </div>
+          )}
+          {lastWeights.length === 0 && exDef.targetWeight > 0 && (
+            <div className="flex gap-2 mb-3">
+              <button onClick={() => fillWeight(exDef.targetWeight)} className="px-3 py-1.5 rounded-lg text-sm font-mono bg-emerald-900/40 text-emerald-400 active:bg-emerald-900/60 border border-emerald-500/30">{exDef.targetWeight}</button>
+            </div>
+          )}
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <label className="text-neutral-500 text-xs mb-1 block">Weight</label>
+              <input type="number" inputMode="decimal" ref={weightRef} defaultValue={String(prefillWeight)}
+                className="w-full bg-neutral-800 text-white text-center text-lg font-mono rounded-xl py-3 px-2 outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="lbs" />
+            </div>
+            <span className="text-neutral-600 text-lg pb-3">×</span>
+            <div className="flex-1">
+              <label className="text-neutral-500 text-xs mb-1 block">Reps</label>
+              <input type="number" inputMode="numeric" ref={repsRef} defaultValue=""
+                onKeyDown={e => { if (e.key === "Enter") addSet(); }}
+                className="w-full bg-neutral-800 text-white text-center text-lg font-mono rounded-xl py-3 px-2 outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="#" />
+            </div>
+            <Btn onClick={addSet} className="px-5 py-3 text-lg">+</Btn>
+          </div>
+          {logged.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-neutral-800">
+              {logged.map((s, i) => (
+                <div key={i} className="flex items-center justify-between py-2 border-b border-neutral-800 last:border-0">
+                  <span className="text-neutral-500 text-sm w-12">Set {i + 1}</span>
+                  <span className="text-white font-mono font-medium text-base flex-1">{s.weight}<span className="text-neutral-500 text-sm">lbs</span> × {s.reps}<span className="text-neutral-500 text-sm">reps</span></span>
+                  <button onClick={() => removeSet(i)} className="text-neutral-600 text-lg px-2 active:text-red-400">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-4 pt-3 border-t border-neutral-800">
+            <p className="text-xs text-neutral-500 mb-2">How'd it feel?</p>
+            <FeelingPicker value={feeling} onChange={updateFeeling} />
+          </div>
+        </Card>
+        {history.length > 0 && (
+          <div>
+            <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">History</p>
+            {history.map((h, i) => (
+              <div key={i} className="flex items-center justify-between py-2.5 border-b border-neutral-800/60">
+                <div><span className="text-neutral-400 text-sm">{formatDate(h.date)}</span><span className="text-neutral-600 text-xs ml-2">{h.sessionName}</span></div>
+                <div className="text-right">
+                  <span className="text-white text-sm font-mono">{h.sets.map(s => `${s.weight}×${s.reps}`).join(", ")}</span>
+                  {h.feeling !== "normal" && <span className={`text-xs ml-1.5 ${h.feeling === "strong" ? "text-emerald-400" : "text-red-400"}`}>{h.feeling === "strong" ? "↑" : "↓"}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // PROGRAM
+  const ProgramView = () => {
+    const addWeek = () => {
+      const wk = { id: uid(), name: `Week ${data.program.weeks.length + 1}`, sessions: [
+        { id: uid(), name: "Upper", exercises: [] }, { id: uid(), name: "Lower", exercises: [] }, { id: uid(), name: "Upper 2", exercises: [] },
+      ]};
+      save({ ...data, program: { weeks: [...data.program.weeks, wk] } });
+    };
+    const removeWeek = (wid) => {
+      if (data.program.weeks.length <= 1) return;
+      save({ ...data, program: { weeks: data.program.weeks.filter(w => w.id !== wid) } });
+    };
+    return (
+      <div>
+        <Header title="Program" onBack={() => setView("home")} />
+        {data.program.weeks.map(week => (
+          <div key={week.id} className="mb-6">
+            <div className="flex items-center justify-between px-1 mb-2">
+              <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">{week.name}</p>
+              {data.program.weeks.length > 1 && <button onClick={() => removeWeek(week.id)} className="text-neutral-600 text-xs active:text-red-400">Remove</button>}
+            </div>
+            {week.sessions.map(sess => (
+              <Card key={sess.id} className="mb-2" onClick={() => { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); }}>
+                <div className="flex items-center justify-between">
+                  <div><p className="text-white font-medium">{sess.name}</p><p className="text-neutral-500 text-xs">{sess.exercises.length} exercises</p></div>
+                  <span className="text-neutral-600">›</span>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ))}
+        <Btn variant="secondary" onClick={addWeek} className="w-full mt-2">+ Add Week</Btn>
+        <div className="mt-8 pt-4 border-t border-neutral-800 space-y-3">
+          <div className="flex gap-2 justify-center">
+            <Btn variant="secondary" onClick={exportData} className="text-xs">Export Backup</Btn>
+            <Btn variant="secondary" onClick={importData} className="text-xs">Import Backup</Btn>
+          </div>
+          {!confirmReset ? (
+            <button onClick={() => setConfirmReset(true)} className="text-neutral-600 text-xs w-full text-center py-2">Reset to defaults</button>
+          ) : (
+            <div className="text-center">
+              <p className="text-red-400 text-xs mb-2">This will erase all logs and reset your program. Sure?</p>
+              <div className="flex gap-2 justify-center">
+                <Btn variant="danger" onClick={resetToDefaults} className="text-xs">Yes, reset</Btn>
+                <Btn variant="ghost" onClick={() => setConfirmReset(false)} className="text-xs">Cancel</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // EDIT SESSION
+  const EditSessionView = () => {
+    const week = data.program.weeks.find(w => w.id === editWeekId);
+    const session = week?.sessions.find(s => s.id === editSessionId);
+    if (!session) return null;
+    const [sessionName, setSessionName] = useState(session.name);
+    const [newExName, setNewExName] = useState("");
+    const [newExSets, setNewExSets] = useState("3");
+    const [newExReps, setNewExReps] = useState("8");
+    const [newExTarget, setNewExTarget] = useState("");
+    const [newExNotes, setNewExNotes] = useState("");
+    const updateName = () => {
+      if (!sessionName.trim()) return;
+      const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, name: sessionName.trim() } : s) } : w);
+      save({ ...data, program: { weeks } });
+    };
+    const addExercise = () => {
+      if (!newExName.trim()) return;
+      const ex = mkEx(newExName.trim(), parseInt(newExSets)||3, parseInt(newExReps)||8, parseFloat(newExTarget)||0, 5, 2, newExNotes.trim());
+      const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: [...s.exercises, ex] } : s) } : w);
+      save({ ...data, program: { weeks } });
+      setNewExName(""); setNewExNotes(""); setNewExTarget("");
+    };
+    const removeExercise = (exId) => {
+      const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: s.exercises.filter(e => e.id !== exId) } : s) } : w);
+      save({ ...data, program: { weeks } });
+    };
+    const moveExercise = (exId, dir) => {
+      const exs = [...session.exercises];
+      const idx = exs.findIndex(e => e.id === exId);
+      if ((dir === -1 && idx === 0) || (dir === 1 && idx === exs.length - 1)) return;
+      [exs[idx], exs[idx + dir]] = [exs[idx + dir], exs[idx]];
+      const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: exs } : s) } : w);
+      save({ ...data, program: { weeks } });
+    };
+    return (
+      <div>
+        <Header title={session.name} onBack={() => setView("program")} />
+        <Card className="mb-4">
+          <p className="text-xs text-neutral-500 mb-1">Session Name</p>
+          <input value={sessionName} onChange={e => setSessionName(e.target.value)} onBlur={updateName}
+            className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" />
+        </Card>
+        <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Exercises</p>
+        {session.exercises.map(ex => (
+          <Card key={ex.id} className="mb-2">
+            <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0" onClick={() => { setEditExercise(ex); setView("editExerciseDetail"); }}>
+                <p className="text-white font-medium truncate">{ex.name}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-neutral-500 text-xs">{ex.defaultSets}×{ex.defaultReps}</span>
+                  {ex.targetWeight > 0 && <span className="text-emerald-400 text-xs font-mono">→ {ex.targetWeight}lbs</span>}
+                </div>
+                <Notes text={ex.notes} />
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button onClick={() => moveExercise(ex.id, -1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▲</button>
+                <button onClick={() => moveExercise(ex.id, 1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▼</button>
+                <button onClick={() => removeExercise(ex.id)} className="text-neutral-600 px-2 py-1 active:text-red-400">×</button>
+              </div>
+            </div>
+          </Card>
+        ))}
+        <Card className="mt-4 border border-dashed border-neutral-700">
+          <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">Add Exercise</p>
+          <input value={newExName} onChange={e => setNewExName(e.target.value)} placeholder="Exercise name"
+            className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none mb-2 focus:ring-2 focus:ring-emerald-500/50" />
+          <div className="flex gap-2 mb-2">
+            <div className="flex-1"><label className="text-neutral-500 text-xs">Sets</label>
+              <input type="number" inputMode="numeric" value={newExSets} onChange={e => setNewExSets(e.target.value)}
+                className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+            <div className="flex-1"><label className="text-neutral-500 text-xs">Reps</label>
+              <input type="number" inputMode="numeric" value={newExReps} onChange={e => setNewExReps(e.target.value)}
+                className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+            <div className="flex-1"><label className="text-emerald-500 text-xs">Target lbs</label>
+              <input type="number" inputMode="decimal" value={newExTarget} onChange={e => setNewExTarget(e.target.value)}
+                className="w-full bg-neutral-800 text-emerald-400 text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="—" /></div>
+          </div>
+          <input value={newExNotes} onChange={e => setNewExNotes(e.target.value)} placeholder="Setup notes (machine settings, grip, etc.)"
+            className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none mb-3 focus:ring-2 focus:ring-emerald-500/50" />
+          <Btn onClick={addExercise} className="w-full">+ Add</Btn>
+        </Card>
+      </div>
+    );
+  };
+
+  // EDIT EXERCISE DETAIL
+  const EditExerciseDetailView = () => {
+    if (!editExercise) return null;
+    const [inc, setInc] = useState(String(editExercise.progressionRule?.weightIncrement || 5));
+    const [tSets, setTSets] = useState(String(editExercise.progressionRule?.targetSets || 3));
+    const [tReps, setTReps] = useState(String(editExercise.progressionRule?.targetReps || 8));
+    const [sNudge, setSNudge] = useState(String(editExercise.progressionRule?.sessionsBeforeNudge || 2));
+    const [exName, setExName] = useState(editExercise.name);
+    const [exNotes, setExNotes] = useState(editExercise.notes || "");
+    const [exTarget, setExTarget] = useState(String(editExercise.targetWeight || ""));
+    const saveRule = () => {
+      const rule = { weightIncrement: parseFloat(inc)||5, targetSets: parseInt(tSets)||3, targetReps: parseInt(tReps)||8, sessionsBeforeNudge: parseInt(sNudge)||2 };
+      const weeks = data.program.weeks.map(w => w.id === editWeekId ? {
+        ...w, sessions: w.sessions.map(s => s.id === editSessionId ? {
+          ...s, exercises: s.exercises.map(e => e.id === editExercise.id ? {
+            ...e, name: exName.trim()||e.name, notes: exNotes.trim(), targetWeight: parseFloat(exTarget)||0,
+            defaultSets: rule.targetSets, defaultReps: rule.targetReps, progressionRule: rule,
+          } : e),
+        } : s),
+      } : w);
+      save({ ...data, program: { weeks } });
+      setView("editSession");
+    };
+    return (
+      <div>
+        <Header title="Edit Exercise" onBack={() => setView("editSession")} />
+        <Card className="space-y-4">
+          <div><label className="text-neutral-500 text-xs block mb-1">Name</label>
+            <input value={exName} onChange={e => setExName(e.target.value)} className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3">
+            <label className="text-emerald-500 text-xs font-bold uppercase tracking-wider block mb-1">Target Weight (lbs)</label>
+            <input type="number" inputMode="decimal" value={exTarget} onChange={e => setExTarget(e.target.value)} placeholder="e.g. 65"
+              className="w-full bg-neutral-800 text-emerald-400 text-center text-lg font-mono rounded-xl py-2.5 px-3 outline-none focus:ring-2 focus:ring-emerald-500/50" />
+            <p className="text-emerald-500/50 text-xs mt-1.5">This is what you're working toward. Update when you're ready to progress.</p>
+          </div>
+          <div><label className="text-neutral-500 text-xs block mb-1">Setup Notes</label>
+            <input value={exNotes} onChange={e => setExNotes(e.target.value)} placeholder="Machine settings, grip, position..."
+              className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest pt-2">Progression Rule</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-neutral-500 text-xs block mb-1">Weight +</label>
+              <input type="number" inputMode="decimal" value={inc} onChange={e => setInc(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+            <div><label className="text-neutral-500 text-xs block mb-1">After N sessions</label>
+              <input type="number" inputMode="numeric" value={sNudge} onChange={e => setSNudge(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+            <div><label className="text-neutral-500 text-xs block mb-1">Target sets</label>
+              <input type="number" inputMode="numeric" value={tSets} onChange={e => setTSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+            <div><label className="text-neutral-500 text-xs block mb-1">Target reps</label>
+              <input type="number" inputMode="numeric" value={tReps} onChange={e => setTReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          </div>
+          <p className="text-neutral-600 text-xs">{parseFloat(inc) === 0 ? "No weight nudge (bodyweight)" : `Nudge +${inc||5}lbs after hitting ${tSets||3}×${tReps||8} for ${sNudge||2} sessions`}</p>
+          <Btn onClick={saveRule} className="w-full">Save</Btn>
+        </Card>
+      </div>
+    );
+  };
+
+  if (loading) return <div className="min-h-screen bg-neutral-950 flex items-center justify-center"><p className="text-neutral-500 text-sm">Loading…</p></div>;
+  if (!data) return null;
+
+  return (
+    <div className="min-h-screen bg-neutral-950 text-white px-4 pb-8 pt-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' }}>
+      {view === "home" && <HomeView />}
+      {view === "workout" && <WorkoutView />}
+      {view === "logExercise" && <LogExerciseView />}
+      {view === "program" && <ProgramView />}
+      {view === "editSession" && <EditSessionView />}
+      {view === "editExerciseDetail" && <EditExerciseDetailView />}
+      {view === "history" && <HistoryView />}
+      {view === "exerciseHistory" && <ExerciseHistoryView />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<GymDump />);
+</script>
+</body>
+</html>
