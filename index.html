@@ -114,7 +114,7 @@ function getExerciseHistory(name, logs) {
   for (const log of logs) {
     for (const ex of log.exercises) {
       if (ex.name.toLowerCase() === name.toLowerCase()) {
-        entries.push({ date: log.date, sessionName: log.sessionName, sets: ex.sets, feeling: ex.feeling });
+        entries.push({ date: log.date, sessionName: log.sessionName, sets: ex.sets, feeling: ex.feeling, logId: log.id });
       }
     }
   }
@@ -299,6 +299,7 @@ function GymDump() {
   const [editSessionId, setEditSessionId] = useState(null);
   const [editWeekId, setEditWeekId] = useState(null);
   const [editExercise, setEditExercise] = useState(null);
+  const [activeLogId, setActiveLogId] = useState(null);
   const [workoutLog, setWorkoutLog] = useState({});
   const weightRef = useRef(null);
   const repsRef = useRef(null);
@@ -388,9 +389,13 @@ function GymDump() {
           <div className="mt-6">
             <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Recent Sessions</p>
             {recentLogs.map((log, i) => (
-              <div key={i} className="flex items-center justify-between py-3 border-b border-neutral-800/60">
+              <div key={i} className="flex items-center justify-between py-3 border-b border-neutral-800/60 cursor-pointer active:bg-neutral-900"
+                onClick={() => { setActiveLogId(log.id); setView("logDetail"); }}>
                 <div><span className="text-white text-sm font-medium">{log.sessionName}</span><span className="text-neutral-500 text-xs ml-2">{formatDate(log.date)}</span></div>
-                <span className="text-neutral-600 text-xs">{log.exercises.length} exercises</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-600 text-xs">{log.exercises.length} exercises</span>
+                  <span className="text-neutral-600">›</span>
+                </div>
               </div>
             ))}
           </div>
@@ -436,11 +441,15 @@ function GymDump() {
         <Header title={activeExName} onBack={() => setView("history")} />
         {hist.length === 0 ? <Card className="text-center"><p className="text-neutral-500 text-sm">No logs yet</p></Card>
         : hist.map((h, i) => (
-          <div key={i} className="flex items-center justify-between py-3 border-b border-neutral-800/60">
+          <div key={i} className="flex items-center justify-between py-3 border-b border-neutral-800/60 cursor-pointer active:bg-neutral-900"
+            onClick={() => { setActiveLogId(h.logId); setView("logDetail"); }}>
             <div><span className="text-neutral-400 text-sm">{formatDate(h.date)}</span><span className="text-neutral-600 text-xs ml-2">{h.sessionName}</span></div>
-            <div className="text-right">
-              <span className="text-white text-sm font-mono">{h.sets.map(s => `${s.weight}×${s.reps}`).join(", ")}</span>
-              {h.feeling !== "normal" && <span className={`text-xs ml-1.5 ${h.feeling === "strong" ? "text-emerald-400" : "text-red-400"}`}>{h.feeling === "strong" ? "↑" : "↓"}</span>}
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <span className="text-white text-sm font-mono">{h.sets.map(s => `${s.weight}×${s.reps}`).join(", ")}</span>
+                {h.feeling !== "normal" && <span className={`text-xs ml-1.5 ${h.feeling === "strong" ? "text-emerald-400" : "text-red-400"}`}>{h.feeling === "strong" ? "↑" : "↓"}</span>}
+              </div>
+              <span className="text-neutral-600">›</span>
             </div>
           </div>
         ))}
@@ -665,6 +674,138 @@ function GymDump() {
     );
   };
 
+  // LOG DETAIL (view/edit/delete past logs)
+  const LogDetailView = () => {
+    const log = data.logs.find(l => l.id === activeLogId);
+    if (!log) { setView("home"); return null; }
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [editingSet, setEditingSet] = useState(null); // {exIdx, setIdx}
+    const [editW, setEditW] = useState("");
+    const [editR, setEditR] = useState("");
+
+    const deleteLog = () => {
+      save({ ...data, logs: data.logs.filter(l => l.id !== activeLogId) });
+      setView("home");
+    };
+
+    const deleteExercise = (exIdx) => {
+      const newExercises = log.exercises.filter((_, i) => i !== exIdx);
+      if (newExercises.length === 0) { deleteLog(); return; }
+      const newLogs = data.logs.map(l => l.id === activeLogId ? { ...l, exercises: newExercises } : l);
+      save({ ...data, logs: newLogs });
+    };
+
+    const deleteSet = (exIdx, setIdx) => {
+      const newSets = log.exercises[exIdx].sets.filter((_, i) => i !== setIdx);
+      if (newSets.length === 0) { deleteExercise(exIdx); return; }
+      const newExercises = log.exercises.map((ex, i) => i === exIdx ? { ...ex, sets: newSets } : ex);
+      const newLogs = data.logs.map(l => l.id === activeLogId ? { ...l, exercises: newExercises } : l);
+      save({ ...data, logs: newLogs });
+    };
+
+    const startEdit = (exIdx, setIdx) => {
+      const s = log.exercises[exIdx].sets[setIdx];
+      setEditW(String(s.weight));
+      setEditR(String(s.reps));
+      setEditingSet({ exIdx, setIdx });
+    };
+
+    const saveEdit = () => {
+      if (!editingSet) return;
+      const w = parseFloat(editW);
+      const r = parseInt(editR);
+      if (!w || !r) return;
+      const { exIdx, setIdx } = editingSet;
+      const newSets = log.exercises[exIdx].sets.map((s, i) => i === setIdx ? { weight: w, reps: r } : s);
+      const newExercises = log.exercises.map((ex, i) => i === exIdx ? { ...ex, sets: newSets } : ex);
+      const newLogs = data.logs.map(l => l.id === activeLogId ? { ...l, exercises: newExercises } : l);
+      save({ ...data, logs: newLogs });
+      setEditingSet(null);
+    };
+
+    const updateFeeling = (exIdx, feeling) => {
+      const newExercises = log.exercises.map((ex, i) => i === exIdx ? { ...ex, feeling } : ex);
+      const newLogs = data.logs.map(l => l.id === activeLogId ? { ...l, exercises: newExercises } : l);
+      save({ ...data, logs: newLogs });
+    };
+
+    return (
+      <div>
+        <Header title={log.sessionName} onBack={() => setView("home")} />
+        <div className="bg-neutral-900 rounded-2xl p-3 mb-4 flex items-center justify-between">
+          <span className="text-neutral-400 text-sm">{formatDate(log.date)}</span>
+          <span className="text-neutral-500 text-xs">{log.exercises.length} exercise{log.exercises.length !== 1 ? "s" : ""} · {log.exercises.reduce((a, e) => a + e.sets.length, 0)} sets</span>
+        </div>
+
+        {log.exercises.map((ex, exIdx) => (
+          <Card key={exIdx} className="mb-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-white font-semibold">{ex.name}</p>
+              <button onClick={() => deleteExercise(exIdx)} className="text-neutral-600 text-xs px-2 py-1 active:text-red-400">Remove</button>
+            </div>
+            {ex.sets.map((s, setIdx) => {
+              const isEditing = editingSet?.exIdx === exIdx && editingSet?.setIdx === setIdx;
+              if (isEditing) {
+                return (
+                  <div key={setIdx} className="flex items-center gap-2 py-2 border-b border-neutral-800 last:border-0">
+                    <span className="text-neutral-500 text-sm w-12">Set {setIdx + 1}</span>
+                    <input type="number" inputMode="decimal" value={editW} onChange={e => setEditW(e.target.value)}
+                      className="w-20 bg-neutral-800 text-white text-center text-sm font-mono rounded-lg py-2 outline-none focus:ring-2 focus:ring-emerald-500/50" />
+                    <span className="text-neutral-600 text-sm">×</span>
+                    <input type="number" inputMode="numeric" value={editR} onChange={e => setEditR(e.target.value)}
+                      className="w-16 bg-neutral-800 text-white text-center text-sm font-mono rounded-lg py-2 outline-none focus:ring-2 focus:ring-emerald-500/50" />
+                    <button onClick={saveEdit} className="text-emerald-400 text-sm px-2 py-1 font-medium active:text-emerald-300">Save</button>
+                    <button onClick={() => setEditingSet(null)} className="text-neutral-600 text-sm px-1 py-1">✕</button>
+                  </div>
+                );
+              }
+              return (
+                <div key={setIdx} className="flex items-center justify-between py-2 border-b border-neutral-800 last:border-0">
+                  <span className="text-neutral-500 text-sm w-12">Set {setIdx + 1}</span>
+                  <span className="text-white font-mono font-medium text-sm flex-1 cursor-pointer active:text-emerald-400"
+                    onClick={() => startEdit(exIdx, setIdx)}>
+                    {s.weight}<span className="text-neutral-500 text-xs">lbs</span> × {s.reps}<span className="text-neutral-500 text-xs">reps</span>
+                  </span>
+                  <button onClick={() => deleteSet(exIdx, setIdx)} className="text-neutral-700 text-lg px-2 active:text-red-400">×</button>
+                </div>
+              );
+            })}
+            <div className="mt-2 pt-2 border-t border-neutral-800">
+              <div className="flex gap-2">
+                {["weak", "normal", "strong"].map(f => (
+                  <button key={f} onClick={() => updateFeeling(exIdx, f)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      ex.feeling === f
+                        ? f === "weak" ? "text-red-400 bg-red-500/15 border-red-500/30"
+                          : f === "strong" ? "text-emerald-400 bg-emerald-500/15 border-emerald-500/30"
+                          : "text-neutral-300 bg-neutral-700 border-neutral-600"
+                        : "text-neutral-600 bg-neutral-800/50 border-neutral-800"
+                    }`}>
+                    {f === "weak" ? "↓" : f === "strong" ? "↑" : "—"} {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Card>
+        ))}
+
+        <div className="mt-6 pt-4 border-t border-neutral-800">
+          {!confirmDelete ? (
+            <button onClick={() => setConfirmDelete(true)} className="text-red-400/60 text-xs w-full text-center py-2">Delete this log</button>
+          ) : (
+            <div className="text-center">
+              <p className="text-red-400 text-xs mb-2">Delete this entire workout log?</p>
+              <div className="flex gap-2 justify-center">
+                <Btn variant="danger" onClick={deleteLog} className="text-xs">Yes, delete</Btn>
+                <Btn variant="ghost" onClick={() => setConfirmDelete(false)} className="text-xs">Cancel</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // PROGRAM
   const ProgramView = () => {
     const addWeek = () => {
@@ -873,6 +1014,7 @@ function GymDump() {
       {view === "editExerciseDetail" && <EditExerciseDetailView />}
       {view === "history" && <HistoryView />}
       {view === "exerciseHistory" && <ExerciseHistoryView />}
+      {view === "logDetail" && <LogDetailView />}
     </div>
   );
 }
