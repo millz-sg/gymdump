@@ -26,6 +26,11 @@
   body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
   .gd-done { background: #0c3a2a !important; border-left: 4px solid #34d399 !important; }
   .gd-badge { background: rgba(16,185,129,0.25); color: #34d399; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-family: ui-monospace, monospace; }
+  .swipe-container { position: relative; overflow: hidden; border-radius: 1rem; }
+  .swipe-bg { position: absolute; right: 0; top: 0; bottom: 0; width: 80px; display: flex; align-items: center; justify-content: center; background: #92400e; border-radius: 0 1rem 1rem 0; }
+  .swipe-content { position: relative; z-index: 1; transition: transform 0.2s ease-out; touch-action: pan-y; }
+  .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+  .modal-box { background: #171717; border-radius: 1.5rem; padding: 1.5rem; width: 100%; max-width: 320px; }
 </style>
 </head>
 <body>
@@ -79,7 +84,6 @@ const INITIAL_DATA = { program: { weeks: [
 
 function loadData() { try { const r = localStorage.getItem(STORAGE_KEY); if (!r) return null; const d = JSON.parse(r); if (!d.completedSessions) d.completedSessions = {}; return d; } catch { return null; } }
 function saveData(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch(e) { console.error(e); } }
-
 function getExerciseHistory(name, logs) {
   const e = [];
   for (const l of logs) for (const x of l.exercises)
@@ -106,6 +110,8 @@ function getWeekStreak(logs) {
   return s;
 }
 function getVolume(wl) { let t = 0; Object.values(wl).forEach(v => { if (v.sets) v.sets.forEach(s => { t += s.weight * s.reps; }); }); return t; }
+
+// ── UI Components ──
 const Btn = ({ children, onClick, variant = "primary", className = "", ...rest }) => {
   const v = { primary: "bg-emerald-600 text-white px-5 py-3 text-base", secondary: "bg-neutral-800 text-neutral-200 px-4 py-2.5 text-sm", ghost: "text-neutral-400 px-3 py-2 text-sm", danger: "bg-red-900/40 text-red-400 px-4 py-2.5 text-sm" };
   return <button onClick={onClick} className={"font-semibold rounded-xl transition-all active:scale-95 " + v[variant] + " " + className} {...rest}>{children}</button>;
@@ -136,12 +142,62 @@ const FeelingPicker = ({ value, onChange }) => {
 const Notes = ({ text }) => text ? <p className="text-neutral-600 text-xs mt-0.5 italic">{text}</p> : null;
 const TargetBadge = ({ ex }) => {
   if (!ex.targetWeight || ex.targetWeight === 0) return null;
-  return (<div className="flex items-center gap-1.5 mt-1"><span className="text-emerald-500 text-xs font-semibold">TARGET</span><span className="text-emerald-400 text-sm font-mono font-medium">{ex.targetWeight}lbs × {ex.defaultSets}×{ex.defaultReps}</span></div>);
+  return (<div className="flex items-center gap-1.5 mt-1"><span className="text-emerald-500 text-xs font-semibold">TARGET</span><span className="text-emerald-400 text-sm font-mono font-medium">{ex.targetWeight}lbs x {ex.defaultSets}x{ex.defaultReps}</span></div>);
 };
 const LastPerf = ({ last }) => {
   if (!last) return null;
-  return (<div className="flex items-center gap-1.5 mt-1"><span className="text-neutral-500 text-xs font-semibold">LAST</span><span className="text-neutral-400 text-xs font-mono">{last.sets.map(s => s.weight + "×" + s.reps).join(", ")}{last.feeling !== "normal" && <span className={last.feeling === "strong" ? "text-emerald-500" : "text-red-400"}> ({last.feeling})</span>}</span><span className="text-neutral-600 text-xs">— {formatDate(last.date)}</span></div>);
+  return (<div className="flex items-center gap-1.5 mt-1"><span className="text-neutral-500 text-xs font-semibold">LAST</span><span className="text-neutral-400 text-xs font-mono">{last.sets.map(s => s.weight + "x" + s.reps).join(", ")}{last.feeling !== "normal" && <span className={last.feeling === "strong" ? "text-emerald-500" : "text-red-400"}> ({last.feeling})</span>}</span><span className="text-neutral-600 text-xs">- {formatDate(last.date)}</span></div>);
 };
+
+// ── Swipe-to-Skip Card ──
+const SwipeCard = ({ children, onSkip, className = "" }) => {
+  const ref = useRef(null);
+  const startX = useRef(0);
+  const currentX = useRef(0);
+  const swiped = useRef(false);
+
+  const onTouchStart = e => { startX.current = e.touches[0].clientX; swiped.current = false; };
+  const onTouchMove = e => {
+    const dx = e.touches[0].clientX - startX.current;
+    const clamped = Math.max(-80, Math.min(0, dx));
+    currentX.current = clamped;
+    if (ref.current) ref.current.style.transform = "translateX(" + clamped + "px)";
+    if (clamped < -20) swiped.current = true;
+  };
+  const onTouchEnd = () => {
+    if (currentX.current < -40) {
+      if (ref.current) ref.current.style.transform = "translateX(-80px)";
+    } else {
+      if (ref.current) ref.current.style.transform = "translateX(0)";
+    }
+  };
+  const resetSwipe = () => { if (ref.current) ref.current.style.transform = "translateX(0)"; };
+
+  return (
+    <div className="swipe-container mb-3">
+      <div className="swipe-bg" onClick={() => { onSkip(); resetSwipe(); }}>
+        <span className="text-white text-sm font-semibold">Skip</span>
+      </div>
+      <div ref={ref} className={"swipe-content bg-neutral-900 rounded-2xl p-4 " + className}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+        onClick={e => { if (swiped.current) { e.stopPropagation(); return; } }}>
+        {children}
+      </div>
+    </div>
+  );
+};
+
+// ── Modal ──
+const Modal = ({ title, children, onClose }) => (
+  <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-box" onClick={e => e.stopPropagation()}>
+      <p className="text-white font-semibold text-base mb-4">{title}</p>
+      {children}
+    </div>
+  </div>
+);
+
+// ── Chart ──
 const ProgressionChart = ({ history, targetWeight }) => {
   const [range, setRange] = useState("3mo");
   const filterByRange = h => { if (range === "all") return h; const c = new Date(); if (range === "1mo") c.setMonth(c.getMonth() - 1); if (range === "3mo") c.setMonth(c.getMonth() - 3); return h.filter(x => new Date(x.date + "T12:00:00") >= c); };
@@ -156,10 +212,10 @@ const ProgressionChart = ({ history, targetWeight }) => {
   const ap = lp + " L" + gX(pts.length - 1).toFixed(1) + "," + (pT + cH).toFixed(1) + " L" + pL + "," + (pT + cH).toFixed(1) + " Z";
   const yt = []; const st = rw <= 20 ? 5 : rw <= 50 ? 10 : 25;
   for (let v = Math.ceil(mn / st) * st; v <= mx; v += st) yt.push(v);
-  const rs = [{ key: "1mo", label: "1M" }, { key: "3mo", label: "3M" }, { key: "all", label: "All" }];
-  return (<div className="mb-4"><div className="flex items-center justify-between mb-2 px-1"><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Progression</p><div className="flex gap-1">{rs.map(r => (<button key={r.key} onClick={() => setRange(r.key)} className={"px-2.5 py-1 rounded-lg text-xs font-medium transition-all " + (range === r.key ? "bg-emerald-600 text-white" : "bg-neutral-800 text-neutral-500 active:bg-neutral-700")}>{r.label}</button>))}</div></div><Card><svg viewBox={"0 0 " + W + " " + H} width="100%" style={{ display: "block" }}>{yt.map(v => (<g key={v}><line x1={pL} y1={gY(v)} x2={W - pR} y2={gY(v)} stroke="#2a2a2a" strokeWidth="0.5" /><text x={pL - 6} y={gY(v) + 3.5} fill="#525252" fontSize="9" fontFamily="ui-monospace,monospace" textAnchor="end">{v}</text></g>))}{targetWeight > 0 && <g><line x1={pL} y1={gY(targetWeight)} x2={W - pR} y2={gY(targetWeight)} stroke="#10b981" strokeWidth="1" strokeDasharray="5,4" opacity="0.4" /><text x={W - pR} y={gY(targetWeight) - 4} fill="#10b981" fontSize="8" fontFamily="ui-monospace,monospace" textAnchor="end" opacity="0.6">target</text></g>}<path d={ap} fill="url(#cg)" /><path d={lp} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />{pts.map((p, i) => (<g key={i}><circle cx={gX(i)} cy={gY(p.weight)} r="3.5" fill="#10b981" /><circle cx={gX(i)} cy={gY(p.weight)} r="2" fill="#0a0a0a" /><text x={gX(i)} y={H - 6} fill="#525252" fontSize="8" fontFamily="ui-monospace,monospace" textAnchor="middle">{formatDate(p.date).replace(" ", "\u00A0")}</text></g>))}<defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity="0.2" /><stop offset="100%" stopColor="#10b981" stopOpacity="0" /></linearGradient></defs></svg></Card></div>);
+  return (<div className="mb-4"><div className="flex items-center justify-between mb-2 px-1"><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Progression</p><div className="flex gap-1">{[{key:"1mo",label:"1M"},{key:"3mo",label:"3M"},{key:"all",label:"All"}].map(r => (<button key={r.key} onClick={() => setRange(r.key)} className={"px-2.5 py-1 rounded-lg text-xs font-medium transition-all " + (range === r.key ? "bg-emerald-600 text-white" : "bg-neutral-800 text-neutral-500")}>{r.label}</button>))}</div></div><Card><svg viewBox={"0 0 "+W+" "+H} width="100%" style={{display:"block"}}>{yt.map(v=>(<g key={v}><line x1={pL} y1={gY(v)} x2={W-pR} y2={gY(v)} stroke="#2a2a2a" strokeWidth="0.5"/><text x={pL-6} y={gY(v)+3.5} fill="#525252" fontSize="9" fontFamily="ui-monospace,monospace" textAnchor="end">{v}</text></g>))}{targetWeight>0&&<g><line x1={pL} y1={gY(targetWeight)} x2={W-pR} y2={gY(targetWeight)} stroke="#10b981" strokeWidth="1" strokeDasharray="5,4" opacity="0.4"/></g>}<path d={ap} fill="url(#cg)"/><path d={lp} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>{pts.map((p,i)=>(<g key={i}><circle cx={gX(i)} cy={gY(p.weight)} r="3.5" fill="#10b981"/><circle cx={gX(i)} cy={gY(p.weight)} r="2" fill="#0a0a0a"/><text x={gX(i)} y={H-6} fill="#525252" fontSize="8" fontFamily="ui-monospace,monospace" textAnchor="middle">{formatDate(p.date).replace(" ","\u00A0")}</text></g>))}<defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity="0.2"/><stop offset="100%" stopColor="#10b981" stopOpacity="0"/></linearGradient></defs></svg></Card></div>);
 };
 
+// ══════════════════════════════════════
 function GymDump() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -176,6 +232,7 @@ function GymDump() {
   const [tempExercises, setTempExercises] = useState(null);
   const [showAddWorkout, setShowAddWorkout] = useState(false);
   const [showEditInfo, setShowEditInfo] = useState(false);
+  const [sessionModal, setSessionModal] = useState(null);
   const weightRef = useRef(null);
   const repsRef = useRef(null);
   const newWorkoutRef = useRef(null);
@@ -185,8 +242,14 @@ function GymDump() {
   const save = useCallback(nd => { setData(nd); saveData(nd); }, []);
   const resetToDefaults = () => { save(INITIAL_DATA); setConfirmReset(false); setView("home"); };
   const exportData = () => { const b = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "gymdump-backup-" + today() + ".json"; a.click(); URL.revokeObjectURL(u); };
-  const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.program && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; save(d); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error reading file."); } }; r.readAsText(f); }; inp.click(); };
+  const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.program && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; save(d); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
   const getSession = (wId, sId) => { const w = data.program.weeks.find(w => w.id === wId); return w?.sessions.find(s => s.id === sId); };
+
+  const startSession = (weekId, sessId) => {
+    setActiveWeekId(weekId); setActiveSessionId(sessId);
+    setWorkoutLog({}); setSkippedExercises({}); setTempExercises(null); setShowAddWorkout(false);
+    setView("workout");
+  };
 
   // ── HOME ──
   const HomeView = () => {
@@ -196,9 +259,13 @@ function GymDump() {
     return (<div>
       <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => setView("history")}>History</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit</Btn></div>} />
       {(ts > 0 || streak > 0) && (<div className="bg-neutral-900 rounded-2xl p-3 mb-5">
-        <div className="flex items-center justify-between"><span className="text-neutral-400 text-sm">{ts} session{ts !== 1 ? "s" : ""} logged</span><span className="text-emerald-400 text-sm font-mono">{data.logs.reduce((a, l) => a + l.exercises.filter(e => !e.skipped).reduce((b, e) => b + (e.sets?.length || 0), 0), 0)} total sets</span></div>
+        <div className="flex items-center justify-between">
+          <span className="text-neutral-400 text-sm">{ts} session{ts !== 1 ? "s" : ""} logged</span>
+          <span className="text-emerald-400 text-sm font-mono">{data.logs.reduce((a, l) => a + l.exercises.filter(e => !e.skipped).reduce((b, e) => b + (e.sets?.length || 0), 0), 0)} total sets</span>
+        </div>
         {streak > 0 && <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center gap-2"><span className="text-amber-400 text-lg">🔥</span><span className="text-amber-400 text-sm font-semibold">{streak} week streak</span></div>}
       </div>)}
+
       {data.program.weeks.map(week => (<div key={week.id} className="mb-5">
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">{week.name}</p>
         <div className="flex gap-2">{week.sessions.map(sess => {
@@ -206,41 +273,94 @@ function GymDump() {
           const ic = !!data.completedSessions[sess.id];
           const ll = [...data.logs].reverse().find(l => l.sessionId === sess.id);
           return (<Card key={sess.id} className={"flex-1 text-center " + (ic ? "gd-done" : "")}
-            onClick={() => { if (ec === 0) { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); } else { setActiveWeekId(week.id); setActiveSessionId(sess.id); setWorkoutLog({}); setSkippedExercises({}); setTempExercises(null); setShowAddWorkout(false); setView("workout"); } }}>
-            {ic && <div><span className="text-emerald-400 text-xs">✓ done</span><br/><button onClick={e => { e.stopPropagation(); const nc = { ...data.completedSessions }; delete nc[sess.id]; save({ ...data, completedSessions: nc }); }} className="text-neutral-500 text-xs active:text-white mt-1">undo</button></div>}
+            onClick={() => {
+              if (ec === 0) { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); return; }
+              if (ic) { setSessionModal({ weekId: week.id, sessId: sess.id, sessName: sess.name }); return; }
+              startSession(week.id, sess.id);
+            }}>
             <p className={"font-semibold text-sm " + (ic ? "text-emerald-400" : "text-white")}>{sess.name}</p>
-            <p className="text-neutral-500 text-xs mt-0.5">{ec} ex</p>
+            {ic ? <p className="text-emerald-500/60 text-xs mt-0.5">✓ Completed</p>
+              : <p className="text-neutral-500 text-xs mt-0.5">{ec} workouts</p>}
             {ll && <p className="text-neutral-600 text-xs mt-1">{formatDate(ll.date)}</p>}
           </Card>);
         })}</div>
       </div>))}
+
       {recentLogs.length > 0 && (<div className="mt-6">
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Recent Sessions</p>
         {recentLogs.map((log, i) => {
-          const en = log.exercises.map(e => e.skipped ? e.name + " (skipped)" : e.name).join(", ");
+          const en = log.exercises.slice(0, 3).map(e => e.skipped ? e.name + " (skip)" : e.name).join(", ");
+          const more = log.exercises.length > 3 ? " +" + (log.exercises.length - 3) + " more" : "";
           return (<div key={i} className="py-3 border-b border-neutral-800/60 cursor-pointer active:bg-neutral-900"
             onClick={() => { setActiveLogId(log.id); setView("logDetail"); }}>
-            <div className="flex items-center justify-between"><div><span className="text-white text-sm font-medium">{log.sessionName}</span><span className="text-neutral-500 text-xs ml-2">{formatDate(log.date)}</span></div><span className="text-neutral-600">›</span></div>
-            <p className="text-neutral-500 text-xs mt-0.5 truncate">{en}</p>
+            <div className="flex items-center justify-between">
+              <span className="text-white text-sm font-medium">{log.sessionName}</span>
+              <span className="text-neutral-500 text-xs">{formatDate(log.date)}</span>
+            </div>
+            <p className="text-neutral-500 text-xs mt-0.5 truncate">{en}{more}</p>
           </div>);
         })}
       </div>)}
-      <p className="text-center text-neutral-800 text-xs mt-8">v4.4</p>
+
+      {/* Session completion modal */}
+      {sessionModal && (<Modal title={sessionModal.sessName} onClose={() => setSessionModal(null)}>
+        <p className="text-neutral-400 text-sm mb-4">This session is marked as done.</p>
+        <div className="space-y-2">
+          <Btn variant="primary" onClick={() => {
+            const ll = [...data.logs].reverse().find(l => l.sessionId === sessionModal.sessId);
+            if (ll) {
+              const sess = getSession(sessionModal.weekId, sessionModal.sessId);
+              if (sess) {
+                const restoredLog = {};
+                sess.exercises.forEach(ex => {
+                  const loggedEx = ll.exercises.find(e => e.name === ex.name && !e.skipped);
+                  if (loggedEx) { restoredLog[ex.id] = { sets: loggedEx.sets, feeling: loggedEx.feeling || "normal" }; }
+                });
+                const restoredSkips = {};
+                sess.exercises.forEach(ex => {
+                  if (ll.exercises.find(e => e.name === ex.name && e.skipped)) restoredSkips[ex.id] = true;
+                });
+                const nc = { ...data.completedSessions }; delete nc[sessionModal.sessId];
+                save({ ...data, logs: data.logs.filter(l => l.id !== ll.id), completedSessions: nc });
+                setActiveWeekId(sessionModal.weekId);
+                setActiveSessionId(sessionModal.sessId);
+                setWorkoutLog(restoredLog);
+                setSkippedExercises(restoredSkips);
+                setTempExercises(null);
+                setShowAddWorkout(false);
+                setView("workout");
+              }
+            }
+            setSessionModal(null);
+          }} className="w-full">Continue Session</Btn>
+          <Btn variant="secondary" onClick={() => {
+            const nc = { ...data.completedSessions }; delete nc[sessionModal.sessId];
+            save({ ...data, completedSessions: nc });
+            startSession(sessionModal.weekId, sessionModal.sessId);
+            setSessionModal(null);
+          }} className="w-full">Start Fresh</Btn>
+          <Btn variant="ghost" onClick={() => {
+            const nc = { ...data.completedSessions }; delete nc[sessionModal.sessId];
+            save({ ...data, completedSessions: nc });
+            setSessionModal(null);
+          }} className="w-full text-neutral-500">Undo Completion</Btn>
+        </div>
+      </Modal>)}
+
+      <p className="text-center text-neutral-800 text-xs mt-8">v5.1</p>
     </div>);
   };
 
-  // ── HISTORY ──
+  // ── HISTORY + EXERCISE HISTORY ──
   const HistoryView = () => {
     const an = new Set(); data.program.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => an.add(e.name)))); data.logs.forEach(l => l.exercises.forEach(e => { if (!e.skipped) an.add(e.name); }));
     return (<div><Header title="Exercise History" onBack={() => setView("home")} />{[...an].sort().map(name => {
       const h = getExerciseHistory(name, data.logs); const l = h[0];
       return (<Card key={name} className="mb-2" onClick={() => { setActiveExName(name); setView("exerciseHistory"); }}>
-        <div className="flex items-center justify-between"><div className="flex-1 min-w-0"><p className="text-white font-medium truncate">{name}</p>{l ? <p className="text-neutral-500 text-xs font-mono mt-0.5">Last: {l.sets.map(s => s.weight + "×" + s.reps).join(", ")} — {formatDate(l.date)}</p> : <p className="text-neutral-600 text-xs mt-0.5">No logs yet</p>}</div><span className="text-neutral-600 flex-shrink-0 ml-2">›</span></div>
+        <div className="flex items-center justify-between"><div className="flex-1 min-w-0"><p className="text-white font-medium truncate">{name}</p>{l ? <p className="text-neutral-500 text-xs font-mono mt-0.5">Last: {l.sets.map(s => s.weight+"x"+s.reps).join(", ")} - {formatDate(l.date)}</p> : <p className="text-neutral-600 text-xs mt-0.5">No logs yet</p>}</div><span className="text-neutral-600 flex-shrink-0 ml-2">›</span></div>
       </Card>);
     })}</div>);
   };
-
-  // ── EXERCISE HISTORY ──
   const ExerciseHistoryView = () => {
     const h = getExerciseHistory(activeExName, data.logs);
     return (<div><Header title={activeExName} onBack={() => setView("history")} />
@@ -248,7 +368,7 @@ function GymDump() {
       : h.map((h, i) => (<div key={i} className="flex items-center justify-between py-3 border-b border-neutral-800/60 cursor-pointer active:bg-neutral-900"
           onClick={() => { setActiveLogId(h.logId); setView("logDetail"); }}>
           <div><span className="text-neutral-400 text-sm">{formatDate(h.date)}</span><span className="text-neutral-600 text-xs ml-2">{h.sessionName}</span></div>
-          <div className="flex items-center gap-2"><span className="text-white text-sm font-mono">{h.sets.map(s => s.weight + "×" + s.reps).join(", ")}</span>{h.feeling !== "normal" && <span className={"text-xs " + (h.feeling === "strong" ? "text-emerald-400" : "text-red-400")}>{h.feeling === "strong" ? "↑" : "↓"}</span>}<span className="text-neutral-600">›</span></div>
+          <div className="flex items-center gap-2"><span className="text-white text-sm font-mono">{h.sets.map(s => s.weight+"x"+s.reps).join(", ")}</span>{h.feeling !== "normal" && <span className={"text-xs " + (h.feeling === "strong" ? "text-emerald-400" : "text-red-400")}>{h.feeling === "strong" ? "↑" : "↓"}</span>}<span className="text-neutral-600">›</span></div>
         </div>))}
     </div>);
   };
@@ -276,11 +396,22 @@ function GymDump() {
 
     return (<div>
       <Header title={session.name} onBack={() => setView("home")} />
-      <div className="bg-neutral-900 rounded-2xl p-3 mb-4 flex items-center justify-between">
-        <div><span className="text-neutral-400 text-xs">Volume</span><p className="text-white font-mono font-semibold">{volume.toLocaleString()} lbs</p></div>
-        <div className="text-right"><span className="text-neutral-400 text-xs">Progress</span><p className="text-emerald-400 font-mono text-sm">{loggedCount}/{exercises.length} done{skippedCount > 0 ? " · " + skippedCount + " skipped" : ""}</p></div>
+
+      {/* Volume + Progress bar */}
+      <div className="bg-neutral-900 rounded-2xl p-3 mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <div><span className="text-neutral-500 text-xs">Volume</span><p className="text-white font-mono font-bold text-lg">{volume.toLocaleString()} <span className="text-neutral-500 text-sm font-normal">lbs</span></p></div>
+          <div className="text-right"><span className="text-neutral-500 text-xs">Progress</span><p className="text-emerald-400 font-mono text-sm font-semibold">{loggedCount + skippedCount} / {exercises.length}</p></div>
+        </div>
+        <div className="flex gap-1">{exercises.map((ex, i) => {
+          const done = !!(workoutLog[ex.id]?.sets?.length > 0);
+          const skipped = !!skippedExercises[ex.id];
+          return <div key={i} className={"h-1.5 flex-1 rounded-full " + (done ? "bg-emerald-500" : skipped ? "bg-amber-600" : "bg-neutral-800")} />;
+        })}</div>
       </div>
-      <div className="space-y-3">{exercises.map(ex => {
+
+      {/* Workout cards - swipeable */}
+      <div className="space-y-0">{exercises.map(ex => {
         const last = getLastPerformance(ex.name, data.logs);
         const nudge = getProgressionNudge(ex.name, data.logs, ex.progressionRule || {});
         const logged = workoutLog[ex.id]?.sets || [];
@@ -289,32 +420,46 @@ function GymDump() {
         const lastLogForEx = [...data.logs].reverse().find(l => l.exercises.some(e => e.name === ex.name));
         const wasSkippedLast = lastLogForEx?.exercises.some(e => e.name === ex.name && e.skipped) || false;
 
-        if (isSkipped) return (<div key={ex.id} className="bg-neutral-900/50 rounded-2xl p-4 border border-neutral-800 opacity-50">
-          <div className="flex items-center justify-between"><div><p className="text-neutral-500 line-through">{ex.name}</p><p className="text-neutral-600 text-xs mt-0.5">Skipped</p></div>
-          <button onClick={() => setSkippedExercises({ ...skippedExercises, [ex.id]: false })} className="text-neutral-500 text-xs px-2 py-1 active:text-white">Undo</button></div></div>);
+        if (isSkipped) return (
+          <div key={ex.id} className="mb-3 bg-neutral-900/40 rounded-2xl p-4 border border-neutral-800/50">
+            <div className="flex items-center justify-between">
+              <div><p className="text-neutral-600 line-through text-sm">{ex.name}</p><p className="text-amber-600 text-xs mt-0.5">Skipped</p></div>
+              <button onClick={() => setSkippedExercises({ ...skippedExercises, [ex.id]: false })} className="text-neutral-500 text-xs px-3 py-1.5 rounded-lg bg-neutral-800 active:bg-neutral-700">Undo</button>
+            </div>
+          </div>
+        );
 
-        return (<Card key={ex.id} className={isLogged ? "gd-done" : ""}>
-          <div className="flex items-start justify-between">
-            <div className="flex-1 min-w-0" onClick={() => { setActiveExName(ex.name); setShowEditInfo(false); setView("logExercise"); }}>
-              <div className="flex items-center gap-2"><p className="text-white font-semibold">{ex.name}</p>{isLogged && <span className="gd-badge">✓ {logged.length} sets</span>}</div>
-              {wasSkippedLast && <p className="text-amber-400 text-xs mt-0.5 font-medium">⚠ Skipped last time</p>}
-              <TargetBadge ex={ex} /><LastPerf last={last} />
-              {!last && !ex.targetWeight && <p className="text-neutral-600 text-xs mt-1">{ex.defaultSets}×{ex.defaultReps} target</p>}
+        return (
+          <SwipeCard key={ex.id} className={isLogged ? "gd-done" : ""}
+            onSkip={() => setSkippedExercises({ ...skippedExercises, [ex.id]: true })}>
+            <div onClick={() => { setActiveExName(ex.name); setShowEditInfo(false); setView("logExercise"); }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <p className="text-white font-semibold truncate">{ex.name}</p>
+                  {isLogged && <span className="gd-badge flex-shrink-0">✓ {logged.length}</span>}
+                </div>
+                {!isLogged && <span className="text-neutral-600 text-lg flex-shrink-0">›</span>}
+              </div>
+              {wasSkippedLast && <p className="text-amber-400 text-xs mt-1 font-medium">⚠ Skipped last time</p>}
+              <TargetBadge ex={ex} />
+              <LastPerf last={last} />
+              {!last && !ex.targetWeight && <p className="text-neutral-600 text-xs mt-1">{ex.defaultSets}x{ex.defaultReps} target</p>}
               <Notes text={ex.notes} />
               {nudge && <p className="text-amber-400 text-xs mt-1 font-medium">↑ Try {nudge.suggested}lbs</p>}
             </div>
-            <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
-              {!isLogged && <span className="text-neutral-600 text-lg">›</span>}
-              <button onClick={e => { e.stopPropagation(); setSkippedExercises({ ...skippedExercises, [ex.id]: true }); }} className="text-neutral-600 text-xs px-2 py-1 active:text-amber-400">Skip</button>
-            </div>
-          </div>
-        </Card>);
+          </SwipeCard>
+        );
       })}</div>
+
+      {/* Add workout */}
       {showAddWorkout ? (<Card className="mt-3 border border-dashed border-neutral-700">
-        <p className="text-xs text-neutral-500 mb-2">Add workout (today only)</p>
+        <p className="text-xs text-neutral-500 mb-2">Add workout for today</p>
         <div className="flex gap-2"><input ref={newWorkoutRef} defaultValue="" placeholder="Workout name" className="flex-1 bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /><Btn onClick={addTempWorkout} className="text-sm px-4 py-2">Add</Btn></div>
-      </Card>) : (<button onClick={() => setShowAddWorkout(true)} className="w-full mt-3 py-2 text-neutral-600 text-xs text-center active:text-neutral-400">+ Add workout for today</button>)}
-      <Btn variant="primary" onClick={completeSession} className="w-full mt-5 py-4 text-base">Complete Session{loggedCount > 0 ? " (" + loggedCount + " logged)" : ""}</Btn>
+      </Card>) : (<button onClick={() => setShowAddWorkout(true)} className="w-full mt-3 py-3 text-neutral-500 text-sm text-center active:text-neutral-300 border border-dashed border-neutral-800 rounded-xl">+ Add workout for today</button>)}
+
+      <Btn variant="primary" onClick={completeSession} className="w-full mt-5 py-4 text-base">
+        Complete Session{loggedCount > 0 ? " (" + loggedCount + " logged)" : ""}
+      </Btn>
     </div>);
   };
 
@@ -329,7 +474,6 @@ function GymDump() {
     const allHistory = getExerciseHistory(exDef.name, data.logs);
     const history = allHistory.slice(0, 8);
     const nudge = getProgressionNudge(exDef.name, data.logs, exDef.progressionRule || {});
-    const rule = { ...DEFAULT_RULE, ...exDef.progressionRule };
     const lastPerf = getLastPerformance(exDef.name, data.logs);
     const targetSets = exDef.defaultSets || 3;
     const currentSetNum = logged.length + 1;
@@ -358,7 +502,8 @@ function GymDump() {
     const setLabel = allDone ? "Bonus Set " + currentSetNum : "Set " + currentSetNum + " of " + targetSets;
 
     return (<div>
-      <Header title={exDef.name} onBack={() => setView("workout")} right={<Btn variant="ghost" onClick={() => setShowEditInfo(!showEditInfo)} className="text-xs">{showEditInfo ? "Done" : "Edit"}</Btn>} />
+      <Header title={exDef.name} onBack={() => setView("workout")} right={<Btn variant="ghost" onClick={() => setShowEditInfo(!showEditInfo)} className="text-xs">{showEditInfo ? "Done" : "Settings"}</Btn>} />
+
       {showEditInfo && (<Card className="mb-3 border border-emerald-500/20">
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">Workout Settings</p>
         <div className="space-y-3">
@@ -373,24 +518,30 @@ function GymDump() {
           <Btn onClick={saveWorkoutInfo} className="w-full text-sm">Save Settings</Btn>
         </div>
       </Card>)}
+
+      {/* Target + Last */}
       <div className="bg-neutral-900 rounded-2xl p-3 mb-3 space-y-1.5">
-        {exDef.targetWeight > 0 && <div className="flex items-center justify-between"><span className="text-emerald-500 text-xs font-bold uppercase tracking-wider">Target</span><span className="text-emerald-400 text-sm font-mono font-semibold">{exDef.targetWeight}lbs × {exDef.defaultSets}×{exDef.defaultReps}</span></div>}
-        {lastPerf && <div className="flex items-center justify-between"><span className="text-neutral-500 text-xs font-bold uppercase tracking-wider">Last</span><div className="text-right"><span className="text-neutral-400 text-xs font-mono">{lastPerf.sets.map(s => s.weight + "×" + s.reps).join(", ")}</span>{lastPerf.feeling !== "normal" && <span className={"text-xs ml-1 " + (lastPerf.feeling === "strong" ? "text-emerald-400" : "text-red-400")}>{lastPerf.feeling === "strong" ? "↑" : "↓"}</span>}<span className="text-neutral-600 text-xs ml-1.5">{formatDate(lastPerf.date)}</span></div></div>}
+        {exDef.targetWeight > 0 && <div className="flex items-center justify-between"><span className="text-emerald-500 text-xs font-bold uppercase tracking-wider">Target</span><span className="text-emerald-400 text-sm font-mono font-semibold">{exDef.targetWeight}lbs x {exDef.defaultSets}x{exDef.defaultReps}</span></div>}
+        {lastPerf && <div className="flex items-center justify-between"><span className="text-neutral-500 text-xs font-bold uppercase tracking-wider">Last</span><div className="text-right"><span className="text-neutral-400 text-xs font-mono">{lastPerf.sets.map(s => s.weight+"x"+s.reps).join(", ")}</span>{lastPerf.feeling !== "normal" && <span className={"text-xs ml-1 " + (lastPerf.feeling === "strong" ? "text-emerald-400" : "text-red-400")}>{lastPerf.feeling === "strong" ? "↑" : "↓"}</span>}<span className="text-neutral-600 text-xs ml-1.5">{formatDate(lastPerf.date)}</span></div></div>}
         {exDef.notes ? <Notes text={exDef.notes} /> : null}
       </div>
-      {nudge && <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-3 mb-3"><p className="text-amber-400 text-sm font-medium">↑ You've hit {nudge.current}lbs for {nudge.sessions} sessions — bump target to {nudge.suggested}lbs?</p></div>}
+      {nudge && <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-3 mb-3"><p className="text-amber-400 text-sm font-medium">↑ Hit {nudge.current}lbs for {nudge.sessions} sessions — try {nudge.suggested}lbs</p></div>}
+
+      {/* Set logger */}
       <Card className="mb-4">
         <div className="flex items-center justify-between mb-3"><p className={"text-sm font-bold tracking-tight " + (allDone ? "text-emerald-400" : "text-white")}>{setLabel}</p>{allDone && <span className="text-emerald-400 text-xs">✓ Target hit</span>}</div>
-        <div className="flex gap-1.5 mb-4">{Array.from({ length: Math.max(targetSets, logged.length + 1) }, (_, i) => (<div key={i} className={"h-1.5 flex-1 rounded-full transition-all " + (i < logged.length ? "bg-emerald-500" : i === logged.length ? "bg-neutral-600" : "bg-neutral-800")} />))}</div>
+        <div className="flex gap-1.5 mb-4">{Array.from({ length: Math.max(targetSets, logged.length + 1) }, (_, i) => (<div key={i} className={"h-1.5 flex-1 rounded-full " + (i < logged.length ? "bg-emerald-500" : i === logged.length ? "bg-neutral-600" : "bg-neutral-800")} />))}</div>
         {lastWeights.length > 0 && (<div className="flex gap-2 mb-3 flex-wrap">{lastWeights.map(w => (<button key={w} onClick={() => fillWeight(w)} className="px-3 py-1.5 rounded-lg text-sm font-mono bg-neutral-800 text-neutral-400 active:bg-neutral-700">{w}</button>))}{exDef.targetWeight > 0 && !lastWeights.includes(exDef.targetWeight) && <button onClick={() => fillWeight(exDef.targetWeight)} className="px-3 py-1.5 rounded-lg text-sm font-mono bg-emerald-900/40 text-emerald-400 active:bg-emerald-900/60 border border-emerald-500/30">{exDef.targetWeight}</button>}</div>)}
         {lastWeights.length === 0 && exDef.targetWeight > 0 && <div className="flex gap-2 mb-3"><button onClick={() => fillWeight(exDef.targetWeight)} className="px-3 py-1.5 rounded-lg text-sm font-mono bg-emerald-900/40 text-emerald-400 active:bg-emerald-900/60 border border-emerald-500/30">{exDef.targetWeight}</button></div>}
-        <div className="flex gap-2 items-end"><div className="flex-1"><label className="text-neutral-500 text-xs mb-1 block">Weight</label><input type="number" inputMode="decimal" ref={weightRef} defaultValue={String(prefillWeight)} className="w-full bg-neutral-800 text-white text-center text-lg font-mono rounded-xl py-3 px-2 outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="lbs" /></div><span className="text-neutral-600 text-lg pb-3">×</span><div className="flex-1"><label className="text-neutral-500 text-xs mb-1 block">Reps</label><input type="number" inputMode="numeric" ref={repsRef} defaultValue="" onKeyDown={e => { if (e.key === "Enter") addSet(); }} className="w-full bg-neutral-800 text-white text-center text-lg font-mono rounded-xl py-3 px-2 outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="#" /></div><Btn onClick={addSet} className="px-5 py-3 text-lg">+</Btn></div>
-        {logged.length > 0 && <div className="mt-4 pt-3 border-t border-neutral-800">{logged.map((s, i) => (<div key={i} className="flex items-center justify-between py-2 border-b border-neutral-800 last:border-0"><span className="text-neutral-500 text-sm w-12">Set {i + 1}</span><span className="text-white font-mono font-medium text-base flex-1">{s.weight}<span className="text-neutral-500 text-sm">lbs</span> × {s.reps}<span className="text-neutral-500 text-sm">reps</span></span><button onClick={() => removeSet(i)} className="text-neutral-600 text-lg px-2 active:text-red-400">×</button></div>))}</div>}
-        <div className="mt-4 pt-3 border-t border-neutral-800"><p className="text-xs text-neutral-500 mb-2">How'd it feel?</p><FeelingPicker value={feeling} onChange={updateFeeling} /></div>
+        <div className="flex gap-2 items-end"><div className="flex-1"><label className="text-neutral-500 text-xs mb-1 block">Weight</label><input type="number" inputMode="decimal" ref={weightRef} defaultValue={String(prefillWeight)} className="w-full bg-neutral-800 text-white text-center text-lg font-mono rounded-xl py-3 px-2 outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="lbs" /></div><span className="text-neutral-600 text-lg pb-3">x</span><div className="flex-1"><label className="text-neutral-500 text-xs mb-1 block">Reps</label><input type="number" inputMode="numeric" ref={repsRef} defaultValue="" onKeyDown={e => { if (e.key === "Enter") addSet(); }} className="w-full bg-neutral-800 text-white text-center text-lg font-mono rounded-xl py-3 px-2 outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="#" /></div><Btn onClick={addSet} className="px-5 py-3 text-lg">+</Btn></div>
+        {logged.length > 0 && <div className="mt-4 pt-3 border-t border-neutral-800">{logged.map((s, i) => (<div key={i} className="flex items-center justify-between py-2 border-b border-neutral-800 last:border-0"><span className="text-neutral-500 text-sm w-12">Set {i + 1}</span><span className="text-white font-mono font-medium text-base flex-1">{s.weight}<span className="text-neutral-500 text-sm">lbs</span> x {s.reps}<span className="text-neutral-500 text-sm">reps</span></span><button onClick={() => removeSet(i)} className="text-neutral-600 text-lg px-2 active:text-red-400">x</button></div>))}</div>}
+        <div className="mt-4 pt-3 border-t border-neutral-800"><p className="text-xs text-neutral-500 mb-2">How did it feel?</p><FeelingPicker value={feeling} onChange={updateFeeling} /></div>
       </Card>
-      {logged.length > 0 && <Btn variant="primary" onClick={() => setView("workout")} className="w-full mt-3 py-4 text-base">Done — Back to Session</Btn>}
+
+      {logged.length > 0 && <Btn variant="primary" onClick={() => setView("workout")} className="w-full mb-4 py-4 text-base">Done</Btn>}
+
       <ProgressionChart history={allHistory} targetWeight={exDef.targetWeight || 0} />
-      {history.length > 0 && (<div><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">History</p>{history.map((h, i) => (<div key={i} className="flex items-center justify-between py-2.5 border-b border-neutral-800/60 cursor-pointer active:bg-neutral-900" onClick={() => { setActiveLogId(h.logId); setView("logDetail"); }}><div><span className="text-neutral-400 text-sm">{formatDate(h.date)}</span><span className="text-neutral-600 text-xs ml-2">{h.sessionName}</span></div><div className="flex items-center gap-2"><span className="text-white text-sm font-mono">{h.sets.map(s => s.weight + "×" + s.reps).join(", ")}</span>{h.feeling !== "normal" && <span className={"text-xs " + (h.feeling === "strong" ? "text-emerald-400" : "text-red-400")}>{h.feeling === "strong" ? "↑" : "↓"}</span>}<span className="text-neutral-600">›</span></div></div>))}</div>)}
+      {history.length > 0 && (<div><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">History</p>{history.map((h, i) => (<div key={i} className="flex items-center justify-between py-2.5 border-b border-neutral-800/60 cursor-pointer active:bg-neutral-900" onClick={() => { setActiveLogId(h.logId); setView("logDetail"); }}><div><span className="text-neutral-400 text-sm">{formatDate(h.date)}</span><span className="text-neutral-600 text-xs ml-2">{h.sessionName}</span></div><div className="flex items-center gap-2"><span className="text-white text-sm font-mono">{h.sets.map(s => s.weight+"x"+s.reps).join(", ")}</span>{h.feeling !== "normal" && <span className={"text-xs " + (h.feeling === "strong" ? "text-emerald-400" : "text-red-400")}>{h.feeling === "strong" ? "↑" : "↓"}</span>}<span className="text-neutral-600">›</span></div></div>))}</div>)}
     </div>);
   };
 
@@ -408,38 +559,50 @@ function GymDump() {
     const startEdit = (exIdx, setIdx) => { const s = log.exercises[exIdx].sets[setIdx]; setEditW(String(s.weight)); setEditR(String(s.reps)); setEditingSet({ exIdx, setIdx }); };
     const saveEdit = () => { if (!editingSet) return; const w = parseFloat(editW); const r = parseInt(editR); if (!w || !r) return; const { exIdx, setIdx } = editingSet; const ns = log.exercises[exIdx].sets.map((s, i) => i === setIdx ? { weight: w, reps: r } : s); const ne = log.exercises.map((ex, i) => i === exIdx ? { ...ex, sets: ns } : ex); save({ ...data, logs: data.logs.map(l => l.id === activeLogId ? { ...l, exercises: ne } : l) }); setEditingSet(null); };
     const updFeeling = (exIdx, f) => { const ne = log.exercises.map((ex, i) => i === exIdx ? { ...ex, feeling: f } : ex); save({ ...data, logs: data.logs.map(l => l.id === activeLogId ? { ...l, exercises: ne } : l) }); };
+
+    const totalVol = log.exercises.filter(e => !e.skipped).reduce((a, e) => a + (e.sets || []).reduce((b, s) => b + s.weight * s.reps, 0), 0);
+
     return (<div>
       <Header title={log.sessionName} onBack={() => setView("home")} />
-      <div className="bg-neutral-900 rounded-2xl p-3 mb-4 flex items-center justify-between"><span className="text-neutral-400 text-sm">{formatDate(log.date)}</span><span className="text-neutral-500 text-xs">{log.exercises.filter(e => !e.skipped).length} exercises · {log.exercises.filter(e => !e.skipped).reduce((a, e) => a + (e.sets?.length || 0), 0)} sets</span></div>
+      <div className="bg-neutral-900 rounded-2xl p-3 mb-4">
+        <div className="flex items-center justify-between">
+          <span className="text-neutral-400 text-sm">{formatDate(log.date)}</span>
+          <span className="text-neutral-500 text-xs">{log.exercises.filter(e => !e.skipped).length} workouts</span>
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-white font-mono text-sm">{totalVol.toLocaleString()} lbs total volume</span>
+          <span className="text-neutral-500 text-xs">{log.exercises.filter(e => !e.skipped).reduce((a, e) => a + (e.sets?.length || 0), 0)} sets</span>
+        </div>
+      </div>
       {log.exercises.map((ex, exIdx) => {
-        if (ex.skipped) return (<Card key={exIdx} className="mb-3 opacity-50"><p className="text-neutral-500 line-through">{ex.name}</p><p className="text-neutral-600 text-xs">Skipped</p></Card>);
+        if (ex.skipped) return (<Card key={exIdx} className="mb-3 opacity-40"><p className="text-neutral-500 line-through text-sm">{ex.name}</p><p className="text-amber-600 text-xs">Skipped</p></Card>);
         return (<Card key={exIdx} className="mb-3">
-          <div className="flex items-center justify-between mb-2"><p className="text-white font-semibold">{ex.name}</p><button onClick={() => deleteExercise(exIdx)} className="text-neutral-600 text-xs px-2 py-1 active:text-red-400">Remove</button></div>
+          <div className="flex items-center justify-between mb-2"><p className="text-white font-semibold">{ex.name}</p><button onClick={() => deleteExercise(exIdx)} className="text-neutral-700 text-xs px-2 py-1 active:text-red-400">Remove</button></div>
           {ex.sets.map((s, setIdx) => {
             const isE = editingSet?.exIdx === exIdx && editingSet?.setIdx === setIdx;
-            if (isE) return (<div key={setIdx} className="flex items-center gap-2 py-2 border-b border-neutral-800 last:border-0"><span className="text-neutral-500 text-sm w-12">Set {setIdx + 1}</span><input type="number" inputMode="decimal" value={editW} onChange={e => setEditW(e.target.value)} className="w-20 bg-neutral-800 text-white text-center text-sm font-mono rounded-lg py-2 outline-none focus:ring-2 focus:ring-emerald-500/50" /><span className="text-neutral-600 text-sm">×</span><input type="number" inputMode="numeric" value={editR} onChange={e => setEditR(e.target.value)} className="w-16 bg-neutral-800 text-white text-center text-sm font-mono rounded-lg py-2 outline-none focus:ring-2 focus:ring-emerald-500/50" /><button onClick={saveEdit} className="text-emerald-400 text-sm px-2 py-1 font-medium">Save</button><button onClick={() => setEditingSet(null)} className="text-neutral-600 text-sm px-1">✕</button></div>);
-            return (<div key={setIdx} className="flex items-center justify-between py-2 border-b border-neutral-800 last:border-0"><span className="text-neutral-500 text-sm w-12">Set {setIdx + 1}</span><span className="text-white font-mono font-medium text-sm flex-1 cursor-pointer active:text-emerald-400" onClick={() => startEdit(exIdx, setIdx)}>{s.weight}<span className="text-neutral-500 text-xs">lbs</span> × {s.reps}<span className="text-neutral-500 text-xs">reps</span></span><button onClick={() => deleteSet(exIdx, setIdx)} className="text-neutral-700 text-lg px-2 active:text-red-400">×</button></div>);
+            if (isE) return (<div key={setIdx} className="flex items-center gap-2 py-2 border-b border-neutral-800 last:border-0"><span className="text-neutral-500 text-sm w-12">Set {setIdx + 1}</span><input type="number" inputMode="decimal" value={editW} onChange={e => setEditW(e.target.value)} className="w-20 bg-neutral-800 text-white text-center text-sm font-mono rounded-lg py-2 outline-none focus:ring-2 focus:ring-emerald-500/50" /><span className="text-neutral-600 text-sm">x</span><input type="number" inputMode="numeric" value={editR} onChange={e => setEditR(e.target.value)} className="w-16 bg-neutral-800 text-white text-center text-sm font-mono rounded-lg py-2 outline-none focus:ring-2 focus:ring-emerald-500/50" /><button onClick={saveEdit} className="text-emerald-400 text-sm px-2 font-medium">Save</button><button onClick={() => setEditingSet(null)} className="text-neutral-600 text-sm px-1">x</button></div>);
+            return (<div key={setIdx} className="flex items-center justify-between py-2 border-b border-neutral-800 last:border-0"><span className="text-neutral-500 text-sm w-12">Set {setIdx + 1}</span><span className="text-white font-mono text-sm flex-1 cursor-pointer active:text-emerald-400" onClick={() => startEdit(exIdx, setIdx)}>{s.weight}<span className="text-neutral-500 text-xs">lbs</span> x {s.reps}<span className="text-neutral-500 text-xs">reps</span></span><button onClick={() => deleteSet(exIdx, setIdx)} className="text-neutral-700 text-lg px-2 active:text-red-400">x</button></div>);
           })}
-          <div className="mt-2 pt-2 border-t border-neutral-800"><div className="flex gap-2">{["weak", "normal", "strong"].map(f => (<button key={f} onClick={() => updFeeling(exIdx, f)} className={"flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all " + (ex.feeling === f ? (f === "weak" ? "text-red-400 bg-red-500/15 border-red-500/30" : f === "strong" ? "text-emerald-400 bg-emerald-500/15 border-emerald-500/30" : "text-neutral-300 bg-neutral-700 border-neutral-600") : "text-neutral-600 bg-neutral-800/50 border-neutral-800")}>{f === "weak" ? "↓" : f === "strong" ? "↑" : "—"} {f.charAt(0).toUpperCase() + f.slice(1)}</button>))}</div></div>
+          <div className="mt-2 pt-2 border-t border-neutral-800"><div className="flex gap-2">{["weak", "normal", "strong"].map(f => (<button key={f} onClick={() => updFeeling(exIdx, f)} className={"flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all " + (ex.feeling === f ? (f === "weak" ? "text-red-400 bg-red-500/15 border-red-500/30" : f === "strong" ? "text-emerald-400 bg-emerald-500/15 border-emerald-500/30" : "text-neutral-300 bg-neutral-700 border-neutral-600") : "text-neutral-600 bg-neutral-800/50 border-neutral-800")}>{f === "weak" ? "↓" : f === "strong" ? "↑" : "-"} {f.charAt(0).toUpperCase() + f.slice(1)}</button>))}</div></div>
         </Card>);
       })}
-      <div className="mt-6 pt-4 border-t border-neutral-800">{!confirmDelete ? (<button onClick={() => setConfirmDelete(true)} className="text-red-400/60 text-xs w-full text-center py-2">Delete this log</button>) : (<div className="text-center"><p className="text-red-400 text-xs mb-2">Delete this entire workout log?</p><div className="flex gap-2 justify-center"><Btn variant="danger" onClick={deleteLog} className="text-xs">Yes, delete</Btn><Btn variant="ghost" onClick={() => setConfirmDelete(false)} className="text-xs">Cancel</Btn></div></div>)}</div>
+      <div className="mt-6 pt-4 border-t border-neutral-800">{!confirmDelete ? (<button onClick={() => setConfirmDelete(true)} className="text-red-400/50 text-xs w-full text-center py-2">Delete this log</button>) : (<div className="text-center"><p className="text-red-400 text-xs mb-2">Delete this entire workout log?</p><div className="flex gap-2 justify-center"><Btn variant="danger" onClick={deleteLog} className="text-xs">Yes, delete</Btn><Btn variant="ghost" onClick={() => setConfirmDelete(false)} className="text-xs">Cancel</Btn></div></div>)}</div>
     </div>);
   };
 
   // ── PROGRAM ──
   const ProgramView = () => {
-    const addWeek = () => { const wk = { id: uid(), name: "Week " + (data.program.weeks.length + 1), sessions: [{ id: uid(), name: "Upper", exercises: [] }, { id: uid(), name: "Lower", exercises: [] }, { id: uid(), name: "Upper 2", exercises: [] }] }; save({ ...data, program: { ...data.program, weeks: [...data.program.weeks, wk] } }); };
+    const addWeek = () => { save({ ...data, program: { ...data.program, weeks: [...data.program.weeks, { id: uid(), name: "Week " + (data.program.weeks.length + 1), sessions: [{ id: uid(), name: "Upper", exercises: [] }, { id: uid(), name: "Lower", exercises: [] }, { id: uid(), name: "Upper 2", exercises: [] }] }] } }); };
     const removeWeek = wid => { if (data.program.weeks.length <= 1) return; save({ ...data, program: { ...data.program, weeks: data.program.weeks.filter(w => w.id !== wid) } }); };
     return (<div><Header title="Program" onBack={() => setView("home")} />
       {data.program.weeks.map(week => (<div key={week.id} className="mb-6">
         <div className="flex items-center justify-between px-1 mb-2"><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">{week.name}</p>{data.program.weeks.length > 1 && <button onClick={() => removeWeek(week.id)} className="text-neutral-600 text-xs active:text-red-400">Remove</button>}</div>
-        {week.sessions.map(sess => (<Card key={sess.id} className="mb-2" onClick={() => { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); }}><div className="flex items-center justify-between"><div><p className="text-white font-medium">{sess.name}</p><p className="text-neutral-500 text-xs">{sess.exercises.length} exercises</p></div><span className="text-neutral-600">›</span></div></Card>))}
+        {week.sessions.map(sess => (<Card key={sess.id} className="mb-2" onClick={() => { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); }}><div className="flex items-center justify-between"><div><p className="text-white font-medium">{sess.name}</p><p className="text-neutral-500 text-xs">{sess.exercises.length} workouts</p></div><span className="text-neutral-600">›</span></div></Card>))}
       </div>))}
       <Btn variant="secondary" onClick={addWeek} className="w-full mt-2">+ Add Week</Btn>
       <div className="mt-8 pt-4 border-t border-neutral-800 space-y-3">
         <div className="flex gap-2 justify-center"><Btn variant="secondary" onClick={exportData} className="text-xs">Export Backup</Btn><Btn variant="secondary" onClick={importData} className="text-xs">Import Backup</Btn></div>
-        {!confirmReset ? (<button onClick={() => setConfirmReset(true)} className="text-neutral-600 text-xs w-full text-center py-2">Reset to defaults</button>) : (<div className="text-center"><p className="text-red-400 text-xs mb-2">This will erase all logs and reset your program. Sure?</p><div className="flex gap-2 justify-center"><Btn variant="danger" onClick={resetToDefaults} className="text-xs">Yes, reset</Btn><Btn variant="ghost" onClick={() => setConfirmReset(false)} className="text-xs">Cancel</Btn></div></div>)}
+        {!confirmReset ? (<button onClick={() => setConfirmReset(true)} className="text-neutral-600 text-xs w-full text-center py-2">Reset to defaults</button>) : (<div className="text-center"><p className="text-red-400 text-xs mb-2">This will erase all logs and reset your program.</p><div className="flex gap-2 justify-center"><Btn variant="danger" onClick={resetToDefaults} className="text-xs">Yes, reset</Btn><Btn variant="ghost" onClick={() => setConfirmReset(false)} className="text-xs">Cancel</Btn></div></div>)}
       </div>
     </div>);
   };
@@ -456,12 +619,12 @@ function GymDump() {
     const moveExercise = (exId, dir) => { const exs = [...session.exercises]; const idx = exs.findIndex(e => e.id === exId); if ((dir === -1 && idx === 0) || (dir === 1 && idx === exs.length - 1)) return; [exs[idx], exs[idx + dir]] = [exs[idx + dir], exs[idx]]; const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: exs } : s) } : w); save({ ...data, program: { weeks } }); };
     return (<div><Header title={session.name} onBack={() => setView("program")} />
       <Card className="mb-4"><p className="text-xs text-neutral-500 mb-1">Session Name</p><input value={sessionName} onChange={e => setSessionName(e.target.value)} onBlur={updateName} className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></Card>
-      <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Exercises</p>
-      {session.exercises.map(ex => (<Card key={ex.id} className="mb-2"><div className="flex items-center justify-between"><div className="flex-1 min-w-0" onClick={() => { setEditExercise(ex); setView("editExerciseDetail"); }}><p className="text-white font-medium truncate">{ex.name}</p><div className="flex items-center gap-2 mt-0.5"><span className="text-neutral-500 text-xs">{ex.defaultSets}×{ex.defaultReps}</span>{ex.targetWeight > 0 && <span className="text-emerald-400 text-xs font-mono">→ {ex.targetWeight}lbs</span>}</div><Notes text={ex.notes} /></div><div className="flex items-center gap-1 flex-shrink-0"><button onClick={() => moveExercise(ex.id, -1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▲</button><button onClick={() => moveExercise(ex.id, 1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▼</button><button onClick={() => removeExercise(ex.id)} className="text-neutral-600 px-2 py-1 active:text-red-400">×</button></div></div></Card>))}
+      <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Workouts</p>
+      {session.exercises.map(ex => (<Card key={ex.id} className="mb-2"><div className="flex items-center justify-between"><div className="flex-1 min-w-0" onClick={() => { setEditExercise(ex); setView("editExerciseDetail"); }}><p className="text-white font-medium truncate">{ex.name}</p><div className="flex items-center gap-2 mt-0.5"><span className="text-neutral-500 text-xs">{ex.defaultSets}x{ex.defaultReps}</span>{ex.targetWeight > 0 && <span className="text-emerald-400 text-xs font-mono">-> {ex.targetWeight}lbs</span>}</div><Notes text={ex.notes} /></div><div className="flex items-center gap-1 flex-shrink-0"><button onClick={() => moveExercise(ex.id, -1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▲</button><button onClick={() => moveExercise(ex.id, 1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▼</button><button onClick={() => removeExercise(ex.id)} className="text-neutral-600 px-2 py-1 active:text-red-400">x</button></div></div></Card>))}
       <Card className="mt-4 border border-dashed border-neutral-700">
-        <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">Add Exercise</p>
-        <input value={newExName} onChange={e => setNewExName(e.target.value)} placeholder="Exercise name" className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none mb-2 focus:ring-2 focus:ring-emerald-500/50" />
-        <div className="flex gap-2 mb-2"><div className="flex-1"><label className="text-neutral-500 text-xs">Sets</label><input type="number" inputMode="numeric" value={newExSets} onChange={e => setNewExSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div><div className="flex-1"><label className="text-neutral-500 text-xs">Reps</label><input type="number" inputMode="numeric" value={newExReps} onChange={e => setNewExReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div><div className="flex-1"><label className="text-emerald-500 text-xs">Target lbs</label><input type="number" inputMode="decimal" value={newExTarget} onChange={e => setNewExTarget(e.target.value)} className="w-full bg-neutral-800 text-emerald-400 text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="—" /></div></div>
+        <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">Add Workout</p>
+        <input value={newExName} onChange={e => setNewExName(e.target.value)} placeholder="Workout name" className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none mb-2 focus:ring-2 focus:ring-emerald-500/50" />
+        <div className="flex gap-2 mb-2"><div className="flex-1"><label className="text-neutral-500 text-xs">Sets</label><input type="number" inputMode="numeric" value={newExSets} onChange={e => setNewExSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div><div className="flex-1"><label className="text-neutral-500 text-xs">Reps</label><input type="number" inputMode="numeric" value={newExReps} onChange={e => setNewExReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div><div className="flex-1"><label className="text-emerald-500 text-xs">Target lbs</label><input type="number" inputMode="decimal" value={newExTarget} onChange={e => setNewExTarget(e.target.value)} className="w-full bg-neutral-800 text-emerald-400 text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="-" /></div></div>
         <input value={newExNotes} onChange={e => setNewExNotes(e.target.value)} placeholder="Setup notes (machine settings, grip, etc.)" className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none mb-3 focus:ring-2 focus:ring-emerald-500/50" />
         <Btn onClick={addExercise} className="w-full">+ Add</Btn>
       </Card>
@@ -483,10 +646,10 @@ function GymDump() {
       const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: s.exercises.map(e => e.id === editExercise.id ? { ...e, name: exName.trim() || e.name, notes: exNotes.trim(), targetWeight: parseFloat(exTarget) || 0, defaultSets: rule.targetSets, defaultReps: rule.targetReps, progressionRule: rule } : e) } : s) } : w);
       save({ ...data, program: { weeks } }); setView("editSession");
     };
-    return (<div><Header title="Edit Exercise" onBack={() => setView("editSession")} />
+    return (<div><Header title="Edit Workout" onBack={() => setView("editSession")} />
       <Card className="space-y-4">
         <div><label className="text-neutral-500 text-xs block mb-1">Name</label><input value={exName} onChange={e => setExName(e.target.value)} className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
-        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3"><label className="text-emerald-500 text-xs font-bold uppercase tracking-wider block mb-1">Target Weight (lbs)</label><input type="number" inputMode="decimal" value={exTarget} onChange={e => setExTarget(e.target.value)} placeholder="e.g. 65" className="w-full bg-neutral-800 text-emerald-400 text-center text-lg font-mono rounded-xl py-2.5 px-3 outline-none focus:ring-2 focus:ring-emerald-500/50" /><p className="text-emerald-500/50 text-xs mt-1.5">Update when you're ready to progress.</p></div>
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3"><label className="text-emerald-500 text-xs font-bold uppercase tracking-wider block mb-1">Target Weight (lbs)</label><input type="number" inputMode="decimal" value={exTarget} onChange={e => setExTarget(e.target.value)} placeholder="e.g. 65" className="w-full bg-neutral-800 text-emerald-400 text-center text-lg font-mono rounded-xl py-2.5 px-3 outline-none focus:ring-2 focus:ring-emerald-500/50" /><p className="text-emerald-500/50 text-xs mt-1.5">Update when you are ready to progress.</p></div>
         <div><label className="text-neutral-500 text-xs block mb-1">Setup Notes</label><input value={exNotes} onChange={e => setExNotes(e.target.value)} placeholder="Machine settings, grip, position..." className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest pt-2">Progression Rule</p>
         <div className="grid grid-cols-2 gap-3">
@@ -495,13 +658,13 @@ function GymDump() {
           <div><label className="text-neutral-500 text-xs block mb-1">Target sets</label><input type="number" inputMode="numeric" value={tSets} onChange={e => setTSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div><label className="text-neutral-500 text-xs block mb-1">Target reps</label><input type="number" inputMode="numeric" value={tReps} onChange={e => setTReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
         </div>
-        <p className="text-neutral-600 text-xs">{parseFloat(inc) === 0 ? "No weight nudge (bodyweight)" : "Nudge +" + (inc || 5) + "lbs after hitting " + (tSets || 3) + "×" + (tReps || 8) + " for " + (sNudge || 2) + " sessions"}</p>
+        <p className="text-neutral-600 text-xs">{parseFloat(inc) === 0 ? "No weight nudge (bodyweight)" : "Nudge +" + (inc || 5) + "lbs after hitting " + (tSets || 3) + "x" + (tReps || 8) + " for " + (sNudge || 2) + " sessions"}</p>
         <Btn onClick={saveRule} className="w-full">Save</Btn>
       </Card>
     </div>);
   };
 
-  if (loading) return <div className="min-h-screen bg-neutral-950 flex items-center justify-center"><p className="text-neutral-500 text-sm">Loading…</p></div>;
+  if (loading) return <div className="min-h-screen bg-neutral-950 flex items-center justify-center"><p className="text-neutral-500 text-sm">Loading...</p></div>;
   if (!data) return null;
   return (<div className="min-h-screen bg-neutral-950 text-white px-4 pb-8 pt-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' }}>
     {view === "home" && <HomeView />}
