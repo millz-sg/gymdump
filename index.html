@@ -26,9 +26,9 @@
   body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
   .gd-done { background: #0c3a2a !important; border-left: 4px solid #34d399 !important; }
   .gd-badge { background: rgba(16,185,129,0.25); color: #34d399; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-family: ui-monospace, monospace; }
-  .swipe-container { position: relative; overflow: hidden; border-radius: 1rem; }
-  .swipe-bg { position: absolute; right: 0; top: 0; bottom: 0; width: 80px; display: flex; align-items: center; justify-content: center; background: #92400e; border-radius: 0 1rem 1rem 0; }
-  .swipe-content { position: relative; z-index: 1; transition: transform 0.2s ease-out; touch-action: pan-y; }
+  .swipe-container { position: relative; overflow: hidden; margin-bottom: 0.75rem; }
+  .swipe-bg { position: absolute; right: 0; top: 4px; bottom: 4px; width: 76px; display: flex; align-items: center; justify-content: center; background: #92400e; border-radius: 0.75rem; }
+  .swipe-content { position: relative; z-index: 1; transition: transform 0.2s ease-out; touch-action: pan-y; background: #171717; border-radius: 1rem; }
   .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
   .modal-box { background: #171717; border-radius: 1.5rem; padding: 1.5rem; width: 100%; max-width: 320px; }
 </style>
@@ -174,11 +174,11 @@ const SwipeCard = ({ children, onSkip, className = "" }) => {
   const resetSwipe = () => { if (ref.current) ref.current.style.transform = "translateX(0)"; };
 
   return (
-    <div className="swipe-container mb-3">
+    <div className="swipe-container">
       <div className="swipe-bg" onClick={() => { onSkip(); resetSwipe(); }}>
         <span className="text-white text-sm font-semibold">Skip</span>
       </div>
-      <div ref={ref} className={"swipe-content bg-neutral-900 rounded-2xl p-4 " + className}
+      <div ref={ref} className={"swipe-content p-4 " + className}
         onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
         onClick={e => { if (swiped.current) { e.stopPropagation(); return; } }}>
         {children}
@@ -347,7 +347,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v5.1</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v5.3</p>
     </div>);
   };
 
@@ -411,7 +411,7 @@ function GymDump() {
       </div>
 
       {/* Workout cards - swipeable */}
-      <div className="space-y-0">{exercises.map(ex => {
+      <div>{exercises.map(ex => {
         const last = getLastPerformance(ex.name, data.logs);
         const nudge = getProgressionNudge(ex.name, data.logs, ex.progressionRule || {});
         const logged = workoutLog[ex.id]?.sets || [];
