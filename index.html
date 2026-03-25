@@ -290,7 +290,7 @@ function GymDump() {
   useEffect(() => { const e = loadData(); if (e) setData(e); else { setData(INITIAL_DATA); saveData(INITIAL_DATA); } setLoading(false); }, []);
   const save = useCallback(nd => { setData(nd); saveData(nd); }, []);
   const resetToDefaults = () => { save(INITIAL_DATA); setConfirmReset(false); setView("home"); };
-  const exportData = () => { const b = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "gymdump-backup-" + today() + ".json"; a.click(); URL.revokeObjectURL(u); };
+  const exportData = (d) => { const toExport = d || data; const b = new Blob([JSON.stringify(toExport, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "gymdump-backup.json"; a.click(); URL.revokeObjectURL(u); };
   const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.program && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; save(d); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
   const getSession = (wId, sId) => { const w = data.program.weeks.find(w => w.id === wId); return w?.sessions.find(s => s.id === sId); };
 
@@ -310,7 +310,7 @@ function GymDump() {
     const lastVol = lastLog ? lastLog.exercises.filter(e => !e.skipped).reduce((a, e) => a + (e.sets || []).reduce((b, s) => b + s.weight * s.reps, 0), 0) : 0;
     const volComp = getVolumeComparison(lastVol);
     return (<div>
-      <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => setView("history")}>History</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit</Btn></div>} />
+      <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => exportData()}>Backup</Btn><Btn variant="ghost" onClick={() => setView("history")}>History</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit</Btn></div>} />
       {(ts > 0 || streak > 0) && (<div className="bg-neutral-900 rounded-2xl p-3 mb-5">
         <div className="flex items-center justify-between">
           <span className="text-neutral-400 text-sm">{ts} session{ts !== 1 ? "s" : ""} logged</span>
@@ -406,7 +406,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v5.6</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v5.7</p>
     </div>);
   };
 
@@ -448,8 +448,11 @@ function GymDump() {
       }).filter(Boolean);
       const nc = { ...data.completedSessions, [activeSessionId]: today() };
       const baseLogs = continuingLogId ? data.logs.filter(l => l.id !== continuingLogId) : data.logs;
-      if (exList.length === 0) { save({ ...data, logs: baseLogs, completedSessions: nc }); setContinuingLogId(null); setView("home"); return; }
-      save({ ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: session.name, exercises: exList }], completedSessions: nc });
+      let newData;
+      if (exList.length === 0) { newData = { ...data, logs: baseLogs, completedSessions: nc }; }
+      else { newData = { ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: session.name, exercises: exList }], completedSessions: nc }; }
+      save(newData);
+      exportData(newData);
       setContinuingLogId(null);
       setView("home");
     };
