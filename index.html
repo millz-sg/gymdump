@@ -215,6 +215,41 @@ const ProgressionChart = ({ history, targetWeight }) => {
   return (<div className="mb-4"><div className="flex items-center justify-between mb-2 px-1"><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Progression</p><div className="flex gap-1">{[{key:"1mo",label:"1M"},{key:"3mo",label:"3M"},{key:"all",label:"All"}].map(r => (<button key={r.key} onClick={() => setRange(r.key)} className={"px-2.5 py-1 rounded-lg text-xs font-medium transition-all " + (range === r.key ? "bg-emerald-600 text-white" : "bg-neutral-800 text-neutral-500")}>{r.label}</button>))}</div></div><Card><svg viewBox={"0 0 "+W+" "+H} width="100%" style={{display:"block"}}>{yt.map(v=>(<g key={v}><line x1={pL} y1={gY(v)} x2={W-pR} y2={gY(v)} stroke="#2a2a2a" strokeWidth="0.5"/><text x={pL-6} y={gY(v)+3.5} fill="#525252" fontSize="9" fontFamily="ui-monospace,monospace" textAnchor="end">{v}</text></g>))}{targetWeight>0&&<g><line x1={pL} y1={gY(targetWeight)} x2={W-pR} y2={gY(targetWeight)} stroke="#10b981" strokeWidth="1" strokeDasharray="5,4" opacity="0.4"/></g>}<path d={ap} fill="url(#cg)"/><path d={lp} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>{pts.map((p,i)=>(<g key={i}><circle cx={gX(i)} cy={gY(p.weight)} r="3.5" fill="#10b981"/><circle cx={gX(i)} cy={gY(p.weight)} r="2" fill="#0a0a0a"/><text x={gX(i)} y={H-6} fill="#525252" fontSize="8" fontFamily="ui-monospace,monospace" textAnchor="middle">{formatDate(p.date).replace(" ","\u00A0")}</text></g>))}<defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity="0.2"/><stop offset="100%" stopColor="#10b981" stopOpacity="0"/></linearGradient></defs></svg></Card></div>);
 };
 
+function getVolumeComparison(lbs) {
+  if (lbs <= 0) return null;
+  const items = [
+    { name: "house cat", lbs: 10, emoji: "🐱" },
+    { name: "bowling ball", lbs: 15, emoji: "🎳" },
+    { name: "golden retriever", lbs: 70, emoji: "🐕" },
+    { name: "toilet", lbs: 96, emoji: "🚽" },
+    { name: "baby elephant", lbs: 250, emoji: "🐘" },
+    { name: "refrigerator", lbs: 300, emoji: "🧊" },
+    { name: "grand piano", lbs: 800, emoji: "🎹" },
+    { name: "horse", lbs: 1100, emoji: "🐴" },
+    { name: "great white shark", lbs: 1500, emoji: "🦈" },
+    { name: "Honda Civic", lbs: 2900, emoji: "🚗" },
+    { name: "hippo", lbs: 3500, emoji: "🦛" },
+    { name: "pickup truck", lbs: 5000, emoji: "🛻" },
+    { name: "African elephant", lbs: 13000, emoji: "🐘" },
+    { name: "school bus", lbs: 24000, emoji: "🚌" },
+    { name: "fighter jet", lbs: 30000, emoji: "✈️" },
+    { name: "semi truck", lbs: 40000, emoji: "🚛" },
+    { name: "humpback whale", lbs: 80000, emoji: "🐋" },
+    { name: "space shuttle", lbs: 165000, emoji: "🚀" },
+    { name: "blue whale", lbs: 300000, emoji: "🐳" },
+    { name: "Statue of Liberty", lbs: 450000, emoji: "🗽" },
+  ];
+  // Find best fit
+  let best = items[0];
+  for (const item of items) {
+    if (lbs >= item.lbs) best = item;
+    else break;
+  }
+  const count = (lbs / best.lbs).toFixed(1).replace(/\.0$/, "");
+  if (parseFloat(count) === 1) return { text: "1 " + best.name, emoji: best.emoji };
+  return { text: count + " " + best.name + (parseFloat(count) !== 1 ? "s" : ""), emoji: best.emoji };
+}
+
 // ══════════════════════════════════════
 function GymDump() {
   const [data, setData] = useState(null);
@@ -233,6 +268,7 @@ function GymDump() {
   const [showAddWorkout, setShowAddWorkout] = useState(false);
   const [showEditInfo, setShowEditInfo] = useState(false);
   const [sessionModal, setSessionModal] = useState(null);
+  const [continuingLogId, setContinuingLogId] = useState(null);
   const weightRef = useRef(null);
   const repsRef = useRef(null);
   const newWorkoutRef = useRef(null);
@@ -248,6 +284,7 @@ function GymDump() {
   const startSession = (weekId, sessId) => {
     setActiveWeekId(weekId); setActiveSessionId(sessId);
     setWorkoutLog({}); setSkippedExercises({}); setTempExercises(null); setShowAddWorkout(false);
+    setContinuingLogId(null);
     setView("workout");
   };
 
@@ -256,6 +293,9 @@ function GymDump() {
     const recentLogs = [...data.logs].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
     const ts = data.logs.length;
     const streak = getWeekStreak(data.logs);
+    const lastLog = recentLogs[0];
+    const lastVol = lastLog ? lastLog.exercises.filter(e => !e.skipped).reduce((a, e) => a + (e.sets || []).reduce((b, s) => b + s.weight * s.reps, 0), 0) : 0;
+    const volComp = getVolumeComparison(lastVol);
     return (<div>
       <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => setView("history")}>History</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit</Btn></div>} />
       {(ts > 0 || streak > 0) && (<div className="bg-neutral-900 rounded-2xl p-3 mb-5">
@@ -263,7 +303,12 @@ function GymDump() {
           <span className="text-neutral-400 text-sm">{ts} session{ts !== 1 ? "s" : ""} logged</span>
           <span className="text-emerald-400 text-sm font-mono">{data.logs.reduce((a, l) => a + l.exercises.filter(e => !e.skipped).reduce((b, e) => b + (e.sets?.length || 0), 0), 0)} total sets</span>
         </div>
-        {streak > 0 && <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center gap-2"><span className="text-amber-400 text-lg">🔥</span><span className="text-amber-400 text-sm font-semibold">{streak} week streak</span></div>}
+        {(streak > 0 || volComp) && <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center justify-between">
+          {streak > 0 && <div className="flex items-center gap-2"><span className="text-amber-400 text-lg">🔥</span><span className="text-amber-400 text-sm font-semibold">{streak} week streak</span></div>}
+          {!streak && <div />}
+          {volComp && <div className="flex items-center gap-1.5"><span className="text-lg">{volComp.emoji}</span><span className="text-neutral-400 text-xs">{volComp.text}</span></div>}
+        </div>}
+        {volComp && <p className="text-neutral-600 text-xs mt-1">Last session: {lastVol.toLocaleString()} lbs lifted</p>}
       </div>)}
 
       {data.program.weeks.map(week => (<div key={week.id} className="mb-5">
@@ -321,7 +366,8 @@ function GymDump() {
                   if (ll.exercises.find(e => e.name === ex.name && e.skipped)) restoredSkips[ex.id] = true;
                 });
                 const nc = { ...data.completedSessions }; delete nc[sessionModal.sessId];
-                save({ ...data, logs: data.logs.filter(l => l.id !== ll.id), completedSessions: nc });
+                save({ ...data, completedSessions: nc });
+                setContinuingLogId(ll.id);
                 setActiveWeekId(sessionModal.weekId);
                 setActiveSessionId(sessionModal.sessId);
                 setWorkoutLog(restoredLog);
@@ -347,7 +393,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v5.3</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v5.5</p>
     </div>);
   };
 
@@ -388,14 +434,25 @@ function GymDump() {
         return null;
       }).filter(Boolean);
       const nc = { ...data.completedSessions, [activeSessionId]: today() };
-      if (exList.length === 0) { save({ ...data, completedSessions: nc }); setView("home"); return; }
-      save({ ...data, logs: [...data.logs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: session.name, exercises: exList }], completedSessions: nc });
+      const baseLogs = continuingLogId ? data.logs.filter(l => l.id !== continuingLogId) : data.logs;
+      if (exList.length === 0) { save({ ...data, logs: baseLogs, completedSessions: nc }); setContinuingLogId(null); setView("home"); return; }
+      save({ ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: session.name, exercises: exList }], completedSessions: nc });
+      setContinuingLogId(null);
       setView("home");
     };
     const addTempWorkout = () => { const nm = newWorkoutRef.current?.value; if (!nm || !nm.trim()) return; setTempExercises([...(tempExercises || session.exercises), mkEx(nm.trim(), 3, 10, 0, 5, 2, "")]); if (newWorkoutRef.current) newWorkoutRef.current.value = ""; setShowAddWorkout(false); };
 
+    const goBack = () => {
+      if (continuingLogId) {
+        // Restore completed status since user is leaving without re-completing
+        save({ ...data, completedSessions: { ...data.completedSessions, [activeSessionId]: today() } });
+        setContinuingLogId(null);
+      }
+      setView("home");
+    };
+
     return (<div>
-      <Header title={session.name} onBack={() => setView("home")} />
+      <Header title={session.name} onBack={goBack} />
 
       {/* Volume + Progress bar */}
       <div className="bg-neutral-900 rounded-2xl p-3 mb-4">
