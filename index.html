@@ -211,25 +211,11 @@ const Modal = ({ title, children, onClose }) => (
   </div>
 );
 
-// ── Rest Timer ──
-const RestTimer = () => {
-  const [seconds, setSeconds] = useState(0);
-  const [running, setRunning] = useState(false);
-  const intervalRef = useRef(null);
-
-  useEffect(() => {
-    if (running) {
-      intervalRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
-    } else {
-      clearInterval(intervalRef.current);
-    }
-    return () => clearInterval(intervalRef.current);
-  }, [running]);
-
+// ── Rest Timer (receives state from parent) ──
+const RestTimer = ({ seconds, running, onToggle, onReset }) => {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   const display = (mins < 10 ? "0" : "") + mins + ":" + (secs < 10 ? "0" : "") + secs;
-
   return (
     <div className="flex items-center justify-between">
       <div>
@@ -237,9 +223,9 @@ const RestTimer = () => {
         <p className={"font-mono text-2xl font-bold " + (running ? "text-emerald-400" : seconds > 0 ? "text-white" : "text-neutral-500")}>{display}</p>
       </div>
       <div className="flex gap-2">
-        <button onClick={() => setRunning(!running)}
+        <button onClick={onToggle}
           className={"px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95 " + (running ? "bg-amber-600 text-white" : "bg-emerald-600 text-white")}>{running ? "Stop" : "Start"}</button>
-        <button onClick={() => { setRunning(false); setSeconds(0); }}
+        <button onClick={onReset}
           className="px-3 py-2 rounded-xl text-sm font-semibold bg-neutral-800 text-neutral-400 active:scale-95 active:bg-neutral-700">Reset</button>
       </div>
     </div>
@@ -335,6 +321,21 @@ function GymDump() {
   const repsRef = useRef(null);
   const newWorkoutRef = useRef(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (timerRunning) {
+      timerRef.current = setInterval(() => {
+        setTimerSeconds(s => {
+          if (s >= 1800) { setTimerRunning(false); return s; }
+          return s + 1;
+        });
+      }, 1000);
+    } else { clearInterval(timerRef.current); }
+    return () => clearInterval(timerRef.current);
+  }, [timerRunning]);
 
   useEffect(() => { const e = loadData(); if (e) setData(e); else { setData(INITIAL_DATA); saveData(INITIAL_DATA); } setLoading(false); }, []);
   const save = useCallback(nd => { setData(nd); saveData(nd); }, []);
@@ -357,20 +358,35 @@ function GymDump() {
     const streak = getWeekStreak(data.logs);
     const lastLog = recentLogs[0];
     const lastVol = lastLog ? lastLog.exercises.filter(e => !e.skipped).reduce((a, e) => a + (e.sets || []).reduce((b, s) => b + s.weight * s.reps, 0), 0) : 0;
-    const volComp = getVolumeComparison(lastVol);
+    const lastComp = getVolumeComparison(lastVol);
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+    const monthName = now.toLocaleDateString("en-US", { month: "long" });
+    const monthLogs = data.logs.filter(l => l.date >= monthStart);
+    const monthVol = monthLogs.reduce((a, l) => a + l.exercises.filter(e => !e.skipped).reduce((b, e) => b + (e.sets || []).reduce((c, s) => c + s.weight * s.reps, 0), 0), 0);
+    const monthSessions = monthLogs.length;
+    const monthComp = getVolumeComparison(monthVol);
     return (<div>
       <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => exportData()}>Backup</Btn><Btn variant="ghost" onClick={() => setView("history")}>History</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit</Btn></div>} />
       {(ts > 0 || streak > 0) && (<div className="bg-neutral-900 rounded-2xl p-3 mb-5">
         <div className="flex items-center justify-between">
           <span className="text-neutral-400 text-sm">{ts} session{ts !== 1 ? "s" : ""} logged</span>
-          <span className="text-emerald-400 text-sm font-mono">{data.logs.reduce((a, l) => a + l.exercises.filter(e => !e.skipped).reduce((b, e) => b + (e.sets?.length || 0), 0), 0)} total sets</span>
+          {streak > 0 && <div className="flex items-center gap-1.5"><span className="text-amber-400">🔥</span><span className="text-amber-400 text-sm font-semibold">{streak} week streak</span></div>}
         </div>
-        {(streak > 0 || volComp) && <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center justify-between">
-          {streak > 0 && <div className="flex items-center gap-2"><span className="text-amber-400 text-lg">🔥</span><span className="text-amber-400 text-sm font-semibold">{streak} week streak</span></div>}
-          {!streak && <div />}
-          {volComp && <div className="flex items-center gap-1.5"><span className="text-lg">{volComp.emoji}</span><span className="text-neutral-400 text-xs">{volComp.text}</span></div>}
-        </div>}
-        {volComp && <p className="text-neutral-600 text-xs mt-1">Last session: {lastVol.toLocaleString()} lbs lifted</p>}
+        {lastComp && (<div className="mt-2 pt-2 border-t border-neutral-800">
+          <p className="text-neutral-500 text-xs uppercase tracking-widest mb-1">Last Session</p>
+          <div className="flex items-center justify-between">
+            <span className="text-white font-mono text-sm">{lastVol.toLocaleString()} lbs</span>
+            <div className="flex items-center gap-1.5"><span>{lastComp.emoji}</span><span className="text-emerald-400 text-sm font-medium">{lastComp.text}</span></div>
+          </div>
+        </div>)}
+        {monthVol > 0 && (<div className="mt-2 pt-2 border-t border-neutral-800">
+          <p className="text-neutral-500 text-xs uppercase tracking-widest mb-1">{monthName} <span className="text-neutral-600 normal-case tracking-normal">· {monthSessions} session{monthSessions !== 1 ? "s" : ""}</span></p>
+          <div className="flex items-center justify-between">
+            <span className="text-white font-mono text-sm">{monthVol.toLocaleString()} lbs</span>
+            {monthComp && <div className="flex items-center gap-1.5"><span>{monthComp.emoji}</span><span className="text-emerald-400 text-sm font-medium">{monthComp.text}</span></div>}
+          </div>
+        </div>)}
       </div>)}
 
       {data.program.weeks.map(week => (<div key={week.id} className="mb-5">
@@ -455,7 +471,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v5.9</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v6.0</p>
     </div>);
   };
 
@@ -650,7 +666,7 @@ function GymDump() {
 
       {/* Rest Timer */}
       <Card className="mb-3">
-        <RestTimer />
+        <RestTimer seconds={timerSeconds} running={timerRunning} onToggle={() => setTimerRunning(!timerRunning)} onReset={() => { setTimerRunning(false); setTimerSeconds(0); }} />
       </Card>
 
       {/* Set logger */}
@@ -664,7 +680,7 @@ function GymDump() {
         <div className="mt-4 pt-3 border-t border-neutral-800"><p className="text-xs text-neutral-500 mb-2">How did it feel?</p><FeelingPicker value={feeling} onChange={updateFeeling} /></div>
       </Card>
 
-      {logged.length > 0 && <Btn variant="primary" onClick={() => setView("workout")} className="w-full mb-4 py-4 text-base">Done</Btn>}
+      {logged.length > 0 && <Btn variant="primary" onClick={() => { setTimerRunning(false); setTimerSeconds(0); setView("workout"); }} className="w-full mb-4 py-4 text-base">Done</Btn>}
 
       <ProgressionChart history={allHistory} targetWeight={exDef.targetWeight || 0} />
       {history.length > 0 && (<div><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">History</p>{history.map((h, i) => (<div key={i} className="flex items-center justify-between py-2.5 border-b border-neutral-800/60 cursor-pointer active:bg-neutral-900" onClick={() => { setActiveLogId(h.logId); setView("logDetail"); }}><div><span className="text-neutral-400 text-sm">{formatDate(h.date)}</span><span className="text-neutral-600 text-xs ml-2">{h.sessionName}</span></div><div className="flex items-center gap-2"><span className="text-white text-sm font-mono">{h.sets.map(s => s.weight+"x"+s.reps).join(", ")}</span>{h.feeling !== "normal" && <span className={"text-xs " + (h.feeling === "strong" ? "text-emerald-400" : "text-red-400")}>{h.feeling === "strong" ? "↑" : "↓"}</span>}<span className="text-neutral-600">›</span></div></div>))}</div>)}
@@ -769,22 +785,25 @@ function GymDump() {
         {showAddSession === week.id ? (
           <Card className="border border-dashed border-neutral-700 mt-2">
             {!addSessionMode && (<div className="space-y-2">
-              <Btn variant="secondary" onClick={() => setAddSessionMode("blank")} className="w-full text-sm">Blank Session</Btn>
+              <Btn variant="secondary" onClick={() => setAddSessionMode("blank")} className="w-full text-sm">Create Your Own</Btn>
               {allSessions.length > 0 && <Btn variant="secondary" onClick={() => setAddSessionMode("copy")} className="w-full text-sm">Copy Existing Session</Btn>}
-              <Btn variant="secondary" onClick={() => setAddSessionMode("template")} className="w-full text-sm">From Template</Btn>
+              <Btn variant="secondary" onClick={() => setAddSessionMode("template")} className="w-full text-sm">Pre-Set Sessions</Btn>
               <button onClick={() => { setShowAddSession(null); setAddSessionMode(null); }} className="text-neutral-600 text-xs w-full text-center py-1">Cancel</button>
             </div>)}
             {addSessionMode === "blank" && (<div>
               <p className="text-xs text-neutral-500 mb-2">Session Name</p>
               <div className="flex gap-2"><input value={newSessName} onChange={e => setNewSessName(e.target.value)} placeholder="e.g. Upper 1" className="flex-1 bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /><Btn onClick={() => addBlankSession(week.id)} className="text-sm px-4 py-2">Add</Btn></div>
+              <button onClick={() => setAddSessionMode(null)} className="text-neutral-500 text-xs w-full text-center py-2 mt-1 active:text-white">‹ Back</button>
             </div>)}
             {addSessionMode === "copy" && (<div>
               <p className="text-xs text-neutral-500 mb-2">Copy from:</p>
               <div className="space-y-1">{allSessions.map(s => (<button key={s.id} onClick={() => copySession(week.id, s)} className="w-full text-left bg-neutral-800 rounded-xl py-2.5 px-3 text-sm text-white active:bg-neutral-700">{s.name} ({s.exercises.length} workouts)</button>))}</div>
+              <button onClick={() => setAddSessionMode(null)} className="text-neutral-500 text-xs w-full text-center py-2 mt-1 active:text-white">‹ Back</button>
             </div>)}
             {addSessionMode === "template" && (<div>
               <p className="text-xs text-neutral-500 mb-2">Add template sessions:</p>
               <div className="space-y-1">{templates.map(t => (<button key={t.name} onClick={() => addFromTemplate(week.id, t)} className="w-full text-left bg-neutral-800 rounded-xl py-2.5 px-3 text-sm text-white active:bg-neutral-700">{t.name}<span className="text-neutral-500 text-xs ml-2">{t.sessions.join(", ")}</span></button>))}</div>
+              <button onClick={() => setAddSessionMode(null)} className="text-neutral-500 text-xs w-full text-center py-2 mt-1 active:text-white">‹ Back</button>
             </div>)}
           </Card>
         ) : (
