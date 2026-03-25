@@ -111,6 +111,20 @@ function getWeekStreak(logs) {
 }
 function getVolume(wl) { let t = 0; Object.values(wl).forEach(v => { if (v.sets) v.sets.forEach(s => { t += s.weight * s.reps; }); }); return t; }
 
+const COMMON_EXERCISES = [
+  "Bench Press","Incline Bench Press","Decline Bench Press","DB Bench Press","Incline DB Bench",
+  "Overhead Press","DB Shoulder Press","Arnold Press","Lateral Raises","Front Raises","Face Pulls",
+  "Barbell Row","DB Row","Lat Pull Down","Wide Grip Lat Pull Down","Cable Row","Seated Row","T Bar Row","Pull Ups","Chin Ups",
+  "Squat","Front Squat","Leg Press","Hack Squat","Lunges","Bulgarian Split Squat",
+  "RDL","Deadlift","Sumo Deadlift","Hip Thrust","Glute Bridge",
+  "Leg Extension","Leg Curl","Hamstring Curl","Calf Raises","Hip Adduction","Hip Abduction",
+  "Bicep Curl","Hammer Curl","Preacher Curl","Cable Curl","EZ Bar Curl",
+  "Tricep Pushdown","Skull Crusher","Overhead Tricep Extension","Dips",
+  "Pec Fly","Cable Fly","Chest Press Machine","Incline Machine Press",
+  "Shrugs","Upright Rows","Reverse Fly",
+  "Plank","Cable Crunch","Leg Raise","Ab Rollout",
+];
+
 // ── UI Components ──
 const Btn = ({ children, onClick, variant = "primary", className = "", ...rest }) => {
   const v = { primary: "bg-emerald-600 text-white px-5 py-3 text-base", secondary: "bg-neutral-800 text-neutral-200 px-4 py-2.5 text-sm", ghost: "text-neutral-400 px-3 py-2 text-sm", danger: "bg-red-900/40 text-red-400 px-4 py-2.5 text-sm" };
@@ -196,6 +210,41 @@ const Modal = ({ title, children, onClose }) => (
     </div>
   </div>
 );
+
+// ── Rest Timer ──
+const RestTimer = () => {
+  const [seconds, setSeconds] = useState(0);
+  const [running, setRunning] = useState(false);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    if (running) {
+      intervalRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
+    } else {
+      clearInterval(intervalRef.current);
+    }
+    return () => clearInterval(intervalRef.current);
+  }, [running]);
+
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  const display = (mins < 10 ? "0" : "") + mins + ":" + (secs < 10 ? "0" : "") + secs;
+
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-neutral-500 text-xs uppercase tracking-widest mb-1">Rest Timer</p>
+        <p className={"font-mono text-2xl font-bold " + (running ? "text-emerald-400" : seconds > 0 ? "text-white" : "text-neutral-500")}>{display}</p>
+      </div>
+      <div className="flex gap-2">
+        <button onClick={() => setRunning(!running)}
+          className={"px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95 " + (running ? "bg-amber-600 text-white" : "bg-emerald-600 text-white")}>{running ? "Stop" : "Start"}</button>
+        <button onClick={() => { setRunning(false); setSeconds(0); }}
+          className="px-3 py-2 rounded-xl text-sm font-semibold bg-neutral-800 text-neutral-400 active:scale-95 active:bg-neutral-700">Reset</button>
+      </div>
+    </div>
+  );
+};
 
 // ── Chart ──
 const ProgressionChart = ({ history, targetWeight }) => {
@@ -406,7 +455,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v5.8</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v5.9</p>
     </div>);
   };
 
@@ -599,6 +648,11 @@ function GymDump() {
       </div>
       {nudge && <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-3 mb-3"><p className="text-amber-400 text-sm font-medium">↑ Hit {nudge.current}lbs for {nudge.sessions} sessions — try {nudge.suggested}lbs</p></div>}
 
+      {/* Rest Timer */}
+      <Card className="mb-3">
+        <RestTimer />
+      </Card>
+
       {/* Set logger */}
       <Card className="mb-4">
         <div className="flex items-center justify-between mb-3"><p className={"text-sm font-bold tracking-tight " + (allDone ? "text-emerald-400" : "text-white")}>{setLabel}</p>{allDone && <span className="text-emerald-400 text-xs">✓ Target hit</span>}</div>
@@ -664,12 +718,78 @@ function GymDump() {
 
   // ── PROGRAM ──
   const ProgramView = () => {
-    const addWeek = () => { save({ ...data, program: { ...data.program, weeks: [...data.program.weeks, { id: uid(), name: "Week " + (data.program.weeks.length + 1), sessions: [{ id: uid(), name: "Upper", exercises: [] }, { id: uid(), name: "Lower", exercises: [] }, { id: uid(), name: "Upper 2", exercises: [] }] }] } }); };
-    const removeWeek = wid => { if (data.program.weeks.length <= 1) return; save({ ...data, program: { ...data.program, weeks: data.program.weeks.filter(w => w.id !== wid) } }); };
+    const [showAddSession, setShowAddSession] = useState(null);
+    const [addSessionMode, setAddSessionMode] = useState(null);
+    const [newSessName, setNewSessName] = useState("");
+
+    const addWeek = () => { save({ ...data, program: { ...data.program, weeks: [...data.program.weeks, { id: uid(), name: "Week " + (data.program.weeks.length + 1), sessions: [] }] } }); };
+    const removeWeek = wid => {
+      if (data.program.weeks.length <= 1) return;
+      const newWeeks = data.program.weeks.filter(w => w.id !== wid).map((w, i) => ({ ...w, name: "Week " + (i + 1) }));
+      save({ ...data, program: { ...data.program, weeks: newWeeks } });
+    };
+    const removeSession = (weekId, sessId) => {
+      const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: w.sessions.filter(s => s.id !== sessId) } : w);
+      save({ ...data, program: { weeks } });
+    };
+    const addBlankSession = (weekId) => {
+      if (!newSessName.trim()) return;
+      const sess = { id: uid(), name: newSessName.trim(), exercises: [] };
+      const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, sess] } : w);
+      save({ ...data, program: { weeks } });
+      setNewSessName(""); setShowAddSession(null); setAddSessionMode(null);
+    };
+    const copySession = (weekId, sourceSess) => {
+      const sess = { id: uid(), name: sourceSess.name + " (copy)", exercises: sourceSess.exercises.map(e => ({ ...e, id: uid() })) };
+      const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, sess] } : w);
+      save({ ...data, program: { weeks } });
+      setShowAddSession(null); setAddSessionMode(null);
+    };
+    const addFromTemplate = (weekId, template) => {
+      const sessions = template.map(name => ({ id: uid(), name, exercises: [] }));
+      const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, ...sessions] } : w);
+      save({ ...data, program: { weeks } });
+      setShowAddSession(null); setAddSessionMode(null);
+    };
+    const allSessions = data.program.weeks.flatMap(w => w.sessions);
+    const templates = [
+      { name: "Upper / Lower / Upper", sessions: ["Upper 1", "Lower", "Upper 2"] },
+      { name: "Push / Pull / Legs", sessions: ["Push", "Pull", "Legs"] },
+      { name: "Full Body A / B", sessions: ["Full Body A", "Full Body B"] },
+      { name: "Bro Split", sessions: ["Chest", "Back", "Shoulders", "Arms", "Legs"] },
+    ];
+
     return (<div><Header title="Program" onBack={() => setView("home")} />
-      {data.program.weeks.map(week => (<div key={week.id} className="mb-6">
-        <div className="flex items-center justify-between px-1 mb-2"><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">{week.name}</p>{data.program.weeks.length > 1 && <button onClick={() => removeWeek(week.id)} className="text-neutral-600 text-xs active:text-red-400">Remove</button>}</div>
-        {week.sessions.map(sess => (<Card key={sess.id} className="mb-2" onClick={() => { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); }}><div className="flex items-center justify-between"><div><p className="text-white font-medium">{sess.name}</p><p className="text-neutral-500 text-xs">{sess.exercises.length} workouts</p></div><span className="text-neutral-600">›</span></div></Card>))}
+      {data.program.weeks.map((week, wi) => (<div key={week.id} className="mb-6">
+        <div className="flex items-center justify-between px-1 mb-2"><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">{week.name}</p>{data.program.weeks.length > 1 && <button onClick={() => removeWeek(week.id)} className="text-neutral-600 text-xs active:text-red-400">Remove Week</button>}</div>
+        {week.sessions.map(sess => (<div key={sess.id} className="flex items-center gap-2 mb-2">
+          <Card className="flex-1" onClick={() => { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); }}><div className="flex items-center justify-between"><div><p className="text-white font-medium">{sess.name}</p><p className="text-neutral-500 text-xs">{sess.exercises.length} workouts</p></div><span className="text-neutral-600">›</span></div></Card>
+          <button onClick={() => removeSession(week.id, sess.id)} className="text-neutral-700 text-sm px-2 py-4 active:text-red-400">x</button>
+        </div>))}
+        {showAddSession === week.id ? (
+          <Card className="border border-dashed border-neutral-700 mt-2">
+            {!addSessionMode && (<div className="space-y-2">
+              <Btn variant="secondary" onClick={() => setAddSessionMode("blank")} className="w-full text-sm">Blank Session</Btn>
+              {allSessions.length > 0 && <Btn variant="secondary" onClick={() => setAddSessionMode("copy")} className="w-full text-sm">Copy Existing Session</Btn>}
+              <Btn variant="secondary" onClick={() => setAddSessionMode("template")} className="w-full text-sm">From Template</Btn>
+              <button onClick={() => { setShowAddSession(null); setAddSessionMode(null); }} className="text-neutral-600 text-xs w-full text-center py-1">Cancel</button>
+            </div>)}
+            {addSessionMode === "blank" && (<div>
+              <p className="text-xs text-neutral-500 mb-2">Session Name</p>
+              <div className="flex gap-2"><input value={newSessName} onChange={e => setNewSessName(e.target.value)} placeholder="e.g. Upper 1" className="flex-1 bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /><Btn onClick={() => addBlankSession(week.id)} className="text-sm px-4 py-2">Add</Btn></div>
+            </div>)}
+            {addSessionMode === "copy" && (<div>
+              <p className="text-xs text-neutral-500 mb-2">Copy from:</p>
+              <div className="space-y-1">{allSessions.map(s => (<button key={s.id} onClick={() => copySession(week.id, s)} className="w-full text-left bg-neutral-800 rounded-xl py-2.5 px-3 text-sm text-white active:bg-neutral-700">{s.name} ({s.exercises.length} workouts)</button>))}</div>
+            </div>)}
+            {addSessionMode === "template" && (<div>
+              <p className="text-xs text-neutral-500 mb-2">Add template sessions:</p>
+              <div className="space-y-1">{templates.map(t => (<button key={t.name} onClick={() => addFromTemplate(week.id, t)} className="w-full text-left bg-neutral-800 rounded-xl py-2.5 px-3 text-sm text-white active:bg-neutral-700">{t.name}<span className="text-neutral-500 text-xs ml-2">{t.sessions.join(", ")}</span></button>))}</div>
+            </div>)}
+          </Card>
+        ) : (
+          <button onClick={() => { setShowAddSession(week.id); setAddSessionMode(null); setNewSessName(""); }} className="w-full mt-1 py-2 text-neutral-500 text-sm text-center active:text-neutral-300 border border-dashed border-neutral-800 rounded-xl">+ Add Session</button>
+        )}
       </div>))}
       <Btn variant="secondary" onClick={addWeek} className="w-full mt-2">+ Add Week</Btn>
       <div className="mt-8 pt-4 border-t border-neutral-800 space-y-3">
@@ -684,9 +804,24 @@ function GymDump() {
     const week = data.program.weeks.find(w => w.id === editWeekId);
     const session = week?.sessions.find(s => s.id === editSessionId); if (!session) return null;
     const [sessionName, setSessionName] = useState(session.name);
-    const [newExName, setNewExName] = useState(""); const [newExSets, setNewExSets] = useState("3"); const [newExReps, setNewExReps] = useState("8"); const [newExTarget, setNewExTarget] = useState(""); const [newExNotes, setNewExNotes] = useState("");
+    const [newExName, setNewExName] = useState("");
+    const [newExSets, setNewExSets] = useState("3");
+    const [newExReps, setNewExReps] = useState("8");
+    const [newExTarget, setNewExTarget] = useState("");
+    const [newExNotes, setNewExNotes] = useState("");
+    const [newExInc, setNewExInc] = useState("5");
+    const [newExNudge, setNewExNudge] = useState("2");
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const suggestions = newExName.length >= 2 ? COMMON_EXERCISES.filter(e => e.toLowerCase().includes(newExName.toLowerCase())).slice(0, 6) : [];
+
     const updateName = () => { if (!sessionName.trim()) return; const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, name: sessionName.trim() } : s) } : w); save({ ...data, program: { weeks } }); };
-    const addExercise = () => { if (!newExName.trim()) return; const ex = mkEx(newExName.trim(), parseInt(newExSets) || 3, parseInt(newExReps) || 8, parseFloat(newExTarget) || 0, 5, 2, newExNotes.trim()); const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: [...s.exercises, ex] } : s) } : w); save({ ...data, program: { weeks } }); setNewExName(""); setNewExNotes(""); setNewExTarget(""); };
+    const addExercise = () => {
+      if (!newExName.trim()) return;
+      const ex = mkEx(newExName.trim(), parseInt(newExSets) || 3, parseInt(newExReps) || 8, parseFloat(newExTarget) || 0, parseFloat(newExInc) || 5, parseInt(newExNudge) || 2, newExNotes.trim());
+      const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: [...s.exercises, ex] } : s) } : w);
+      save({ ...data, program: { weeks } });
+      setNewExName(""); setNewExNotes(""); setNewExTarget(""); setNewExSets("3"); setNewExReps("8"); setNewExInc("5"); setNewExNudge("2"); setShowSuggestions(false);
+    };
     const removeExercise = exId => { const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: s.exercises.filter(e => e.id !== exId) } : s) } : w); save({ ...data, program: { weeks } }); };
     const moveExercise = (exId, dir) => { const exs = [...session.exercises]; const idx = exs.findIndex(e => e.id === exId); if ((dir === -1 && idx === 0) || (dir === 1 && idx === exs.length - 1)) return; [exs[idx], exs[idx + dir]] = [exs[idx + dir], exs[idx]]; const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: exs } : s) } : w); save({ ...data, program: { weeks } }); };
     return (<div><Header title={session.name} onBack={() => setView("program")} />
@@ -695,8 +830,20 @@ function GymDump() {
       {session.exercises.map(ex => (<Card key={ex.id} className="mb-2"><div className="flex items-center justify-between"><div className="flex-1 min-w-0" onClick={() => { setEditExercise(ex); setView("editExerciseDetail"); }}><p className="text-white font-medium truncate">{ex.name}</p><div className="flex items-center gap-2 mt-0.5"><span className="text-neutral-500 text-xs">{ex.defaultSets}x{ex.defaultReps}</span>{ex.targetWeight > 0 && <span className="text-emerald-400 text-xs font-mono">-> {ex.targetWeight}lbs</span>}</div><Notes text={ex.notes} /></div><div className="flex items-center gap-1 flex-shrink-0"><button onClick={() => moveExercise(ex.id, -1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▲</button><button onClick={() => moveExercise(ex.id, 1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▼</button><button onClick={() => removeExercise(ex.id)} className="text-neutral-600 px-2 py-1 active:text-red-400">x</button></div></div></Card>))}
       <Card className="mt-4 border border-dashed border-neutral-700">
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">Add Workout</p>
-        <input value={newExName} onChange={e => setNewExName(e.target.value)} placeholder="Workout name" className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none mb-2 focus:ring-2 focus:ring-emerald-500/50" />
-        <div className="flex gap-2 mb-2"><div className="flex-1"><label className="text-neutral-500 text-xs">Sets</label><input type="number" inputMode="numeric" value={newExSets} onChange={e => setNewExSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div><div className="flex-1"><label className="text-neutral-500 text-xs">Reps</label><input type="number" inputMode="numeric" value={newExReps} onChange={e => setNewExReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div><div className="flex-1"><label className="text-emerald-500 text-xs">Target lbs</label><input type="number" inputMode="decimal" value={newExTarget} onChange={e => setNewExTarget(e.target.value)} className="w-full bg-neutral-800 text-emerald-400 text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="-" /></div></div>
+        <div className="relative">
+          <input value={newExName} onChange={e => { setNewExName(e.target.value); setShowSuggestions(true); }} onFocus={() => setShowSuggestions(true)} placeholder="Workout name (e.g. Lat Pulldown)" className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none mb-1 focus:ring-2 focus:ring-emerald-500/50" />
+          {showSuggestions && suggestions.length > 0 && (<div className="absolute left-0 right-0 top-full z-10 bg-neutral-800 rounded-xl border border-neutral-700 overflow-hidden mb-2">{suggestions.map(s => (<button key={s} onClick={() => { setNewExName(s); setShowSuggestions(false); }} className="w-full text-left px-3 py-2.5 text-sm text-white active:bg-neutral-700 border-b border-neutral-700/50 last:border-0">{s}</button>))}</div>)}
+        </div>
+        <div className="flex gap-2 mb-2 mt-1">
+          <div className="flex-1"><label className="text-neutral-500 text-xs">Sets</label><input type="number" inputMode="numeric" value={newExSets} onChange={e => setNewExSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          <div className="flex-1"><label className="text-neutral-500 text-xs">Reps</label><input type="number" inputMode="numeric" value={newExReps} onChange={e => setNewExReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          <div className="flex-1"><label className="text-emerald-500 text-xs">Target lbs</label><input type="number" inputMode="decimal" value={newExTarget} onChange={e => setNewExTarget(e.target.value)} className="w-full bg-neutral-800 text-emerald-400 text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="-" /></div>
+        </div>
+        <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 mt-3">Progression</p>
+        <div className="flex gap-2 mb-2">
+          <div className="flex-1"><label className="text-neutral-500 text-xs">Weight +</label><input type="number" inputMode="decimal" value={newExInc} onChange={e => setNewExInc(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          <div className="flex-1"><label className="text-neutral-500 text-xs">After N sessions</label><input type="number" inputMode="numeric" value={newExNudge} onChange={e => setNewExNudge(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+        </div>
         <input value={newExNotes} onChange={e => setNewExNotes(e.target.value)} placeholder="Setup notes (machine settings, grip, etc.)" className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none mb-3 focus:ring-2 focus:ring-emerald-500/50" />
         <Btn onClick={addExercise} className="w-full">+ Add</Btn>
       </Card>
