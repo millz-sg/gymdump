@@ -406,7 +406,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v5.7</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v5.8</p>
     </div>);
   };
 
@@ -452,7 +452,6 @@ function GymDump() {
       if (exList.length === 0) { newData = { ...data, logs: baseLogs, completedSessions: nc }; }
       else { newData = { ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: session.name, exercises: exList }], completedSessions: nc }; }
       save(newData);
-      exportData(newData);
       setContinuingLogId(null);
       setView("home");
     };
