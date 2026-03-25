@@ -221,23 +221,35 @@ function getVolumeComparison(lbs) {
     { name: "house cat", lbs: 10, emoji: "🐱" },
     { name: "bowling ball", lbs: 15, emoji: "🎳" },
     { name: "golden retriever", lbs: 70, emoji: "🐕" },
+    { name: "canoe", lbs: 80, emoji: "🛶" },
     { name: "toilet", lbs: 96, emoji: "🚽" },
     { name: "baby elephant", lbs: 250, emoji: "🐘" },
     { name: "refrigerator", lbs: 300, emoji: "🧊" },
+    { name: "motorcycle", lbs: 450, emoji: "🏍️" },
+    { name: "grizzly bear", lbs: 700, emoji: "🐻" },
     { name: "grand piano", lbs: 800, emoji: "🎹" },
     { name: "horse", lbs: 1100, emoji: "🐴" },
     { name: "great white shark", lbs: 1500, emoji: "🦈" },
+    { name: "F1 car", lbs: 1765, emoji: "🏎️" },
+    { name: "crocodile", lbs: 2200, emoji: "🐊" },
     { name: "Honda Civic", lbs: 2900, emoji: "🚗" },
+    { name: "Porsche GT3 RS", lbs: 3270, emoji: "🏎️", plural: "Porsche GT3 RS" },
     { name: "hippo", lbs: 3500, emoji: "🦛" },
+    { name: "rhino", lbs: 4500, emoji: "🦏" },
     { name: "pickup truck", lbs: 5000, emoji: "🛻" },
+    { name: "Range Rover", lbs: 5500, emoji: "🚙" },
+    { name: "helicopter", lbs: 8000, emoji: "🚁" },
+    { name: "ambulance", lbs: 10000, emoji: "🚑" },
     { name: "African elephant", lbs: 13000, emoji: "🐘" },
+    { name: "fire truck", lbs: 19000, emoji: "🚒" },
     { name: "school bus", lbs: 24000, emoji: "🚌" },
     { name: "fighter jet", lbs: 30000, emoji: "✈️" },
     { name: "semi truck", lbs: 40000, emoji: "🚛" },
+    { name: "Gulfstream G650", lbs: 45000, emoji: "✈️", plural: "Gulfstream G650s" },
     { name: "humpback whale", lbs: 80000, emoji: "🐋" },
     { name: "space shuttle", lbs: 165000, emoji: "🚀" },
     { name: "blue whale", lbs: 300000, emoji: "🐳" },
-    { name: "Statue of Liberty", lbs: 450000, emoji: "🗽" },
+    { name: "Statue of Liberty", lbs: 450000, emoji: "🗽", plural: "Statues of Liberty" },
   ];
   // Find best fit
   let best = items[0];
@@ -246,8 +258,9 @@ function getVolumeComparison(lbs) {
     else break;
   }
   const count = (lbs / best.lbs).toFixed(1).replace(/\.0$/, "");
-  if (parseFloat(count) === 1) return { text: "1 " + best.name, emoji: best.emoji };
-  return { text: count + " " + best.name + (parseFloat(count) !== 1 ? "s" : ""), emoji: best.emoji };
+  const plural = parseFloat(count) !== 1;
+  const name = plural && best.plural ? best.plural : plural ? best.name + "s" : best.name;
+  return { text: count + " " + name, emoji: best.emoji };
 }
 
 // ══════════════════════════════════════
@@ -393,7 +406,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v5.5</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v5.6</p>
     </div>);
   };
 
