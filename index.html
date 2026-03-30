@@ -367,7 +367,7 @@ function GymDump() {
     const monthSessions = monthLogs.length;
     const monthComp = getVolumeComparison(monthVol);
     return (<div>
-      <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => exportData()}>Backup</Btn><Btn variant="ghost" onClick={() => setView("history")}>History</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit</Btn></div>} />
+      <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => exportData()}>Backup</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit Program</Btn></div>} />
       {(ts > 0 || streak > 0) && (<div className="bg-neutral-900 rounded-2xl p-3 mb-5">
         <div className="flex items-center justify-between">
           <span className="text-neutral-400 text-sm">{ts} session{ts !== 1 ? "s" : ""} logged</span>
@@ -410,7 +410,7 @@ function GymDump() {
       </div>))}
 
       {recentLogs.length > 0 && (<div className="mt-6">
-        <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Recent Sessions</p>
+        <div className="flex items-center justify-between mb-2 px-1"><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Recent Sessions</p><button onClick={() => setView("history")} className="text-xs font-bold text-neutral-500 uppercase tracking-widest active:text-white">All History ›</button></div>
         {recentLogs.map((log, i) => {
           const en = log.exercises.slice(0, 3).map(e => e.skipped ? e.name + " (skip)" : e.name).join(", ");
           const more = log.exercises.length > 3 ? " +" + (log.exercises.length - 3) + " more" : "";
