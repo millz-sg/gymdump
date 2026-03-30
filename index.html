@@ -471,7 +471,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v6.0</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v6.0.2</p>
     </div>);
   };
 
@@ -619,6 +619,7 @@ function GymDump() {
 
     const [eiTarget, setEiTarget] = useState(String(exDef.targetWeight || ""));
     const [eiNotes, setEiNotes] = useState(exDef.notes || "");
+    const [eiName, setEiName] = useState(exDef.name);
     const [eiInc, setEiInc] = useState(String(exDef.progressionRule?.weightIncrement || 5));
     const [eiSets, setEiSets] = useState(String(exDef.progressionRule?.targetSets || 3));
     const [eiReps, setEiReps] = useState(String(exDef.progressionRule?.targetReps || 8));
@@ -626,8 +627,12 @@ function GymDump() {
 
     const saveWorkoutInfo = () => {
       const nr = { weightIncrement: parseFloat(eiInc) || 5, targetSets: parseInt(eiSets) || 3, targetReps: parseInt(eiReps) || 8, sessionsBeforeNudge: parseInt(eiNudge) || 2 };
-      const weeks = data.program.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === exDef.name ? { ...e, targetWeight: parseFloat(eiTarget) || 0, notes: eiNotes.trim(), defaultSets: nr.targetSets, defaultReps: nr.targetReps, progressionRule: nr } : e) })) }));
-      save({ ...data, program: { weeks } }); setShowEditInfo(false);
+      const oldName = exDef.name;
+      const newName = eiName.trim() || oldName;
+      const weeks = data.program.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === oldName ? { ...e, name: newName, targetWeight: parseFloat(eiTarget) || 0, notes: eiNotes.trim(), defaultSets: nr.targetSets, defaultReps: nr.targetReps, progressionRule: nr } : e) })) }));
+      save({ ...data, program: { weeks } });
+      if (newName !== oldName) setActiveExName(newName);
+      setShowEditInfo(false);
     };
     useEffect(() => { if (weightRef.current) weightRef.current.value = String(prefillWeight); if (repsRef.current) repsRef.current.value = ""; }, [activeExName]);
     const preserveInputs = fn => { const cw = weightRef.current?.value || ""; const cr = repsRef.current?.value || ""; fn(); requestAnimationFrame(() => { if (weightRef.current) weightRef.current.value = cw; if (repsRef.current) repsRef.current.value = cr; }); };
@@ -639,11 +644,12 @@ function GymDump() {
     const setLabel = allDone ? "Bonus Set " + currentSetNum : "Set " + currentSetNum + " of " + targetSets;
 
     return (<div>
-      <Header title={exDef.name} onBack={() => setView("workout")} right={<Btn variant="ghost" onClick={() => setShowEditInfo(!showEditInfo)} className="text-xs">{showEditInfo ? "Done" : "Settings"}</Btn>} />
+      <Header title={activeExName} onBack={() => setView("workout")} right={<Btn variant="ghost" onClick={() => setShowEditInfo(!showEditInfo)} className="text-xs">{showEditInfo ? "Done" : "Settings"}</Btn>} />
 
       {showEditInfo && (<Card className="mb-3 border border-emerald-500/20">
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">Workout Settings</p>
         <div className="space-y-3">
+          <div><label className="text-neutral-500 text-xs block mb-1">Workout Name</label><input value={eiName} onChange={e => setEiName(e.target.value)} className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div><label className="text-emerald-500 text-xs block mb-1">Target Weight (lbs)</label><input type="number" inputMode="decimal" value={eiTarget} onChange={e => setEiTarget(e.target.value)} placeholder="e.g. 65" className="w-full bg-neutral-800 text-emerald-400 text-center font-mono rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div><label className="text-neutral-500 text-xs block mb-1">Setup Notes</label><input value={eiNotes} onChange={e => setEiNotes(e.target.value)} placeholder="Machine settings..." className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div className="grid grid-cols-2 gap-2">
@@ -741,8 +747,7 @@ function GymDump() {
     const addWeek = () => { save({ ...data, program: { ...data.program, weeks: [...data.program.weeks, { id: uid(), name: "Week " + (data.program.weeks.length + 1), sessions: [] }] } }); };
     const removeWeek = wid => {
       if (data.program.weeks.length <= 1) return;
-      const newWeeks = data.program.weeks.filter(w => w.id !== wid).map((w, i) => ({ ...w, name: "Week " + (i + 1) }));
-      save({ ...data, program: { ...data.program, weeks: newWeeks } });
+      save({ ...data, program: { ...data.program, weeks: data.program.weeks.filter(w => w.id !== wid) } });
     };
     const removeSession = (weekId, sessId) => {
       const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: w.sessions.filter(s => s.id !== sessId) } : w);
@@ -777,7 +782,7 @@ function GymDump() {
 
     return (<div><Header title="Program" onBack={() => setView("home")} />
       {data.program.weeks.map((week, wi) => (<div key={week.id} className="mb-6">
-        <div className="flex items-center justify-between px-1 mb-2"><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">{week.name}</p>{data.program.weeks.length > 1 && <button onClick={() => removeWeek(week.id)} className="text-neutral-600 text-xs active:text-red-400">Remove Week</button>}</div>
+        <div className="flex items-center justify-between px-1 mb-2"><input value={week.name} onChange={e => { const weeks = data.program.weeks.map(w => w.id === week.id ? { ...w, name: e.target.value } : w); save({ ...data, program: { weeks } }); }} className="text-xs font-bold text-neutral-500 uppercase tracking-widest bg-transparent outline-none flex-1 min-w-0 focus:text-white" />{data.program.weeks.length > 1 && <button onClick={() => removeWeek(week.id)} className="text-neutral-600 text-xs active:text-red-400 flex-shrink-0 ml-2">Remove</button>}</div>
         {week.sessions.map(sess => (<div key={sess.id} className="flex items-center gap-2 mb-2">
           <Card className="flex-1" onClick={() => { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); }}><div className="flex items-center justify-between"><div><p className="text-white font-medium">{sess.name}</p><p className="text-neutral-500 text-xs">{sess.exercises.length} workouts</p></div><span className="text-neutral-600">›</span></div></Card>
           <button onClick={() => removeSession(week.id, sess.id)} className="text-neutral-700 text-sm px-2 py-4 active:text-red-400">x</button>
@@ -881,7 +886,9 @@ function GymDump() {
     const [exTarget, setExTarget] = useState(String(editExercise.targetWeight || ""));
     const saveRule = () => {
       const rule = { weightIncrement: parseFloat(inc) || 5, targetSets: parseInt(tSets) || 3, targetReps: parseInt(tReps) || 8, sessionsBeforeNudge: parseInt(sNudge) || 2 };
-      const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: s.exercises.map(e => e.id === editExercise.id ? { ...e, name: exName.trim() || e.name, notes: exNotes.trim(), targetWeight: parseFloat(exTarget) || 0, defaultSets: rule.targetSets, defaultReps: rule.targetReps, progressionRule: rule } : e) } : s) } : w);
+      const oldName = editExercise.name;
+      const newName = exName.trim() || oldName;
+      const weeks = data.program.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === oldName ? { ...e, name: newName, notes: exNotes.trim(), targetWeight: parseFloat(exTarget) || 0, defaultSets: rule.targetSets, defaultReps: rule.targetReps, progressionRule: rule } : e) })) }));
       save({ ...data, program: { weeks } }); setView("editSession");
     };
     return (<div><Header title="Edit Workout" onBack={() => setView("editSession")} />
