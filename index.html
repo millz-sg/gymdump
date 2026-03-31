@@ -273,25 +273,44 @@ function getVolumeComparison(lbs) {
     { name: "rhino", lbs: 4500, emoji: "🦏" },
     { name: "pickup truck", lbs: 5000, emoji: "🛻" },
     { name: "Range Rover", lbs: 5500, emoji: "🚙" },
-    { name: "helicopter", lbs: 8000, emoji: "🚁" },
+    { name: "monster truck", lbs: 8000, emoji: "🛻" },
     { name: "ambulance", lbs: 10000, emoji: "🚑" },
     { name: "African elephant", lbs: 13000, emoji: "🐘" },
+    { name: "T-Rex", lbs: 15000, emoji: "🦖", plural: "T-Rex" },
     { name: "fire truck", lbs: 19000, emoji: "🚒" },
     { name: "school bus", lbs: 24000, emoji: "🚌" },
     { name: "fighter jet", lbs: 30000, emoji: "✈️" },
     { name: "semi truck", lbs: 40000, emoji: "🚛" },
     { name: "Gulfstream G650", lbs: 45000, emoji: "✈️", plural: "Gulfstream G650s" },
+    { name: "bulldozer", lbs: 50000, emoji: "🚜" },
+    { name: "cement mixer truck", lbs: 55000, emoji: "🏗️" },
+    { name: "yacht", lbs: 60000, emoji: "⛵" },
+    { name: "locomotive", lbs: 70000, emoji: "🚂" },
     { name: "humpback whale", lbs: 80000, emoji: "🐋" },
+    { name: "brachiosaurus", lbs: 90000, emoji: "🦕", plural: "brachiosaurus" },
+    { name: "house", lbs: 100000, emoji: "🏠" },
+    { name: "Boeing 737", lbs: 110000, emoji: "✈️", plural: "Boeing 737s" },
+    { name: "train car", lbs: 120000, emoji: "🚄" },
+    { name: "helicopter", lbs: 130000, emoji: "🚁" },
+    { name: "space station module", lbs: 150000, emoji: "🛰️" },
     { name: "space shuttle", lbs: 165000, emoji: "🚀" },
     { name: "blue whale", lbs: 300000, emoji: "🐳" },
     { name: "Statue of Liberty", lbs: 450000, emoji: "🗽", plural: "Statues of Liberty" },
   ];
-  // Find best fit
-  let best = items[0];
-  for (const item of items) {
-    if (lbs >= item.lbs) best = item;
+  // Find best fit - switch to next item when past halfway
+  let bestIdx = 0;
+  for (let i = 0; i < items.length; i++) {
+    if (lbs >= items[i].lbs) bestIdx = i;
     else break;
   }
+  // Check if we're past halfway to the next item
+  if (bestIdx < items.length - 1) {
+    const curr = items[bestIdx];
+    const next = items[bestIdx + 1];
+    const halfway = (curr.lbs + next.lbs) / 2;
+    if (lbs >= halfway) bestIdx = bestIdx + 1;
+  }
+  const best = items[bestIdx];
   const count = (lbs / best.lbs).toFixed(1).replace(/\.0$/, "");
   const plural = parseFloat(count) !== 1;
   const name = plural && best.plural ? best.plural : plural ? best.name + "s" : best.name;
