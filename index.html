@@ -339,7 +339,7 @@ function GymDump() {
   const [showEditInfo, setShowEditInfo] = useState(false);
   const [sessionModal, setSessionModal] = useState(null);
   const [continuingLogId, setContinuingLogId] = useState(null);
-  const [inProgressSession, setInProgressSession] = useState(null);
+  const sessionStatesRef = useRef({});
   const weightRef = useRef(null);
   const repsRef = useRef(null);
   const newWorkoutRef = useRef(null);
@@ -367,10 +367,29 @@ function GymDump() {
   const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.program && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; save(d); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
   const getSession = (wId, sId) => { const w = data.program.weeks.find(w => w.id === wId); return w?.sessions.find(s => s.id === sId); };
 
+  const saveCurrentSessionState = () => {
+    if (activeSessionId && Object.values(workoutLog).some(v => v.sets?.length > 0)) {
+      sessionStatesRef.current[activeSessionId] = { weekId: activeWeekId, workoutLog, skippedExercises, doneExercises, tempExercises, continuingLogId };
+    }
+  };
+
   const startSession = (weekId, sessId) => {
+    saveCurrentSessionState();
     setActiveWeekId(weekId); setActiveSessionId(sessId);
     setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({}); setTempExercises(null); setShowAddWorkout(false);
     setContinuingLogId(null);
+    setView("workout");
+  };
+
+  const resumeSession = (sessId) => {
+    const ss = sessionStatesRef.current[sessId];
+    if (!ss) return;
+    saveCurrentSessionState();
+    setActiveWeekId(ss.weekId); setActiveSessionId(sessId);
+    setWorkoutLog(ss.workoutLog); setSkippedExercises(ss.skippedExercises);
+    setDoneExercises(ss.doneExercises); setTempExercises(ss.tempExercises);
+    setContinuingLogId(ss.continuingLogId || null);
+    setShowAddWorkout(false);
     setView("workout");
   };
 
@@ -418,19 +437,16 @@ function GymDump() {
           const ec = sess.exercises.length;
           const ic = !!data.completedSessions[sess.id];
           const ll = [...data.logs].reverse().find(l => l.sessionId === sess.id);
-          const isInProg = inProgressSession?.sessId === sess.id;
-          const cardClass = ic ? "gd-done" : isInProg ? "gd-progress" : "";
+          const isCurrentActive = activeSessionId === sess.id && Object.values(workoutLog).some(v => v.sets?.length > 0);
+          const isInRef = !!sessionStatesRef.current[sess.id];
+          const isInProg = isCurrentActive || isInRef;
+          const cardClass = ic ? "gd-done" : isInProg ? "gd-session-progress" : "";
           return (<Card key={sess.id} className={"flex-1 text-center " + cardClass}
             onClick={() => {
               if (ec === 0) { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); return; }
               if (ic) { setSessionModal({ weekId: week.id, sessId: sess.id, sessName: sess.name }); return; }
-              if (isInProg) {
-                setActiveWeekId(inProgressSession.weekId); setActiveSessionId(inProgressSession.sessId);
-                setWorkoutLog(inProgressSession.workoutLog); setSkippedExercises(inProgressSession.skippedExercises);
-                setDoneExercises(inProgressSession.doneExercises); setTempExercises(inProgressSession.tempExercises);
-                setShowAddWorkout(false); setView("workout"); return;
-              }
-              setInProgressSession(null);
+              if (isCurrentActive) { setView("workout"); return; }
+              if (isInRef) { resumeSession(sess.id); return; }
               startSession(week.id, sess.id);
             }}>
             <p className={"font-semibold text-sm " + (ic ? "text-emerald-400" : isInProg ? "text-amber-400" : "text-white")}>{sess.name}</p>
@@ -467,6 +483,7 @@ function GymDump() {
             if (ll) {
               const sess = getSession(sessionModal.weekId, sessionModal.sessId);
               if (sess) {
+                saveCurrentSessionState();
                 const restoredLog = {};
                 sess.exercises.forEach(ex => {
                   const loggedEx = ll.exercises.find(e => e.name === ex.name && !e.skipped);
@@ -494,6 +511,7 @@ function GymDump() {
             setSessionModal(null);
           }} className="w-full">Continue Session</Btn>
           <Btn variant="secondary" onClick={() => {
+            saveCurrentSessionState();
             const nc = { ...data.completedSessions }; delete nc[sessionModal.sessId];
             save({ ...data, completedSessions: nc });
             startSession(sessionModal.weekId, sessionModal.sessId);
@@ -507,7 +525,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v6.1.1</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v6.1.2</p>
     </div>);
   };
 
@@ -555,7 +573,7 @@ function GymDump() {
       else { newData = { ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: session.name, exercises: exList }], completedSessions: nc }; }
       save(newData);
       setContinuingLogId(null);
-      setInProgressSession(null);
+      delete sessionStatesRef.current[activeSessionId];
       setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({});
       setActiveSessionId(null); setActiveWeekId(null);
       setView("home");
@@ -566,14 +584,9 @@ function GymDump() {
       if (continuingLogId) {
         save({ ...data, completedSessions: { ...data.completedSessions, [activeSessionId]: today() } });
         setContinuingLogId(null);
-        setInProgressSession(null);
+        delete sessionStatesRef.current[activeSessionId];
       } else {
-        const hasAnyWork = Object.values(workoutLog).some(v => v.sets?.length > 0) || Object.values(skippedExercises).some(Boolean);
-        if (hasAnyWork) {
-          setInProgressSession({ sessId: activeSessionId, weekId: activeWeekId, workoutLog, skippedExercises, doneExercises, tempExercises });
-        } else {
-          setInProgressSession(null);
-        }
+        saveCurrentSessionState();
       }
       setView("home");
     };
