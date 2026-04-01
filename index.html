@@ -40,6 +40,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 const STORAGE_KEY = "gymdump-data-v2";
+const SESSION_STATE_KEY = "gymdump-active-sessions";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const DEFAULT_RULE = { weightIncrement: 5, targetSets: 3, targetReps: 8, sessionsBeforeNudge: 2 };
 const mkEx = (name, sets, reps, tw, inc, nudge, notes = "") => ({
@@ -255,46 +256,39 @@ const ProgressionChart = ({ history, targetWeight }) => {
 function getVolumeComparison(lbs) {
   if (lbs <= 0) return null;
   const items = [
-    { name: "house cat", lbs: 10, emoji: "🐱" },
-    { name: "bowling ball", lbs: 15, emoji: "🎳" },
-    { name: "golden retriever", lbs: 70, emoji: "🐕" },
-    { name: "canoe", lbs: 80, emoji: "🛶" },
-    { name: "toilet", lbs: 96, emoji: "🚽" },
-    { name: "baby elephant", lbs: 250, emoji: "🐘" },
-    { name: "refrigerator", lbs: 300, emoji: "🧊" },
-    { name: "motorcycle", lbs: 450, emoji: "🏍️" },
-    { name: "grizzly bear", lbs: 700, emoji: "🐻" },
-    { name: "grand piano", lbs: 800, emoji: "🎹" },
-    { name: "horse", lbs: 1100, emoji: "🐴" },
-    { name: "great white shark", lbs: 1500, emoji: "🦈" },
-    { name: "F1 car", lbs: 1765, emoji: "🏎️" },
-    { name: "crocodile", lbs: 2200, emoji: "🐊" },
-    { name: "Honda Civic", lbs: 2900, emoji: "🚗" },
-    { name: "Porsche GT3 RS", lbs: 3270, emoji: "🏎️", plural: "Porsche GT3 RS" },
-    { name: "hippo", lbs: 3500, emoji: "🦛" },
-    { name: "rhino", lbs: 4500, emoji: "🦏" },
-    { name: "pickup truck", lbs: 5000, emoji: "🛻" },
-    { name: "Range Rover", lbs: 5500, emoji: "🚙" },
-    { name: "monster truck", lbs: 8000, emoji: "🛻" },
-    { name: "ambulance", lbs: 10000, emoji: "🚑" },
-    { name: "African elephant", lbs: 13000, emoji: "🐘" },
-    { name: "T-Rex", lbs: 15000, emoji: "🦖", plural: "T-Rex" },
-    { name: "fire truck", lbs: 19000, emoji: "🚒" },
-    { name: "school bus", lbs: 24000, emoji: "🚌" },
-    { name: "fighter jet", lbs: 30000, emoji: "✈️" },
-    { name: "semi truck", lbs: 40000, emoji: "🚛" },
-    { name: "Gulfstream G650", lbs: 45000, emoji: "✈️", plural: "Gulfstream G650s" },
-    { name: "bulldozer", lbs: 50000, emoji: "🚜" },
-    { name: "cement mixer truck", lbs: 55000, emoji: "🏗️" },
-    { name: "yacht", lbs: 60000, emoji: "⛵" },
-    { name: "locomotive", lbs: 70000, emoji: "🚂" },
+    { name: "pizza slice", lbs: 0.5, emoji: "🍕" },
+    { name: "beer", lbs: 1, emoji: "🍺" },
+    { name: "pumpkin spice latte", lbs: 1.5, emoji: "☕" },
+    { name: "rotisserie chicken", lbs: 5, emoji: "🐔" },
+    { name: "electric guitar", lbs: 8, emoji: "🎸" },
+    { name: "fat house cat", lbs: 15, emoji: "🐱" },
+    { name: "watermelon", lbs: 25, emoji: "🍉" },
+    { name: "corgi", lbs: 30, emoji: "🐕", plural: "corgis" },
+    { name: "giant teddy bear", lbs: 50, emoji: "🧸" },
+    { name: "golden doodle", lbs: 65, emoji: "🐶" },
+    { name: "Christmas tree", lbs: 80, emoji: "🎄" },
+    { name: "keg of beer", lbs: 160, emoji: "🍺", plural: "kegs of beer" },
+    { name: "Costco cart", lbs: 250, emoji: "🛒" },
+    { name: "pig", lbs: 450, emoji: "🐷" },
+    { name: "vending machine", lbs: 700, emoji: "🎰" },
+    { name: "cow", lbs: 1500, emoji: "🐄" },
+    { name: "golf cart", lbs: 2000, emoji: "⛳" },
+    { name: "baby hippo", lbs: 3500, emoji: "🦛" },
+    { name: "taco truck", lbs: 5000, emoji: "🌮" },
+    { name: "T-Rex", lbs: 7000, emoji: "🦖", plural: "T-Rex" },
+    { name: "carnival ride", lbs: 10000, emoji: "🎪" },
+    { name: "party elephant", lbs: 13000, emoji: "🐘" },
+    { name: "brachiosaurus", lbs: 15000, emoji: "🦕", plural: "brachiosaurus" },
+    { name: "school bus", lbs: 20000, emoji: "🚌", plural: "school buses" },
+    { name: "tiny house", lbs: 25000, emoji: "🏠" },
+    { name: "ice cream truck", lbs: 30000, emoji: "🍦" },
+    { name: "whale shark", lbs: 40000, emoji: "🦈" },
+    { name: "roller coaster car", lbs: 50000, emoji: "🎢" },
+    { name: "Mars rover", lbs: 60000, emoji: "🛰️" },
+    { name: "container ship anchor", lbs: 70000, emoji: "⚓" },
     { name: "humpback whale", lbs: 80000, emoji: "🐋" },
-    { name: "brachiosaurus", lbs: 90000, emoji: "🦕", plural: "brachiosaurus" },
-    { name: "house", lbs: 100000, emoji: "🏠" },
-    { name: "Boeing 737", lbs: 110000, emoji: "✈️", plural: "Boeing 737s" },
-    { name: "train car", lbs: 120000, emoji: "🚄" },
-    { name: "helicopter", lbs: 130000, emoji: "🚁" },
-    { name: "space station module", lbs: 150000, emoji: "🛰️" },
+    { name: "house of pancakes", lbs: 100000, emoji: "🥞", plural: "houses of pancakes" },
+    { name: "UFO", lbs: 130000, emoji: "🛸" },
     { name: "space shuttle", lbs: 165000, emoji: "🚀" },
     { name: "blue whale", lbs: 300000, emoji: "🐳" },
     { name: "Statue of Liberty", lbs: 450000, emoji: "🗽", plural: "Statues of Liberty" },
@@ -313,8 +307,8 @@ function getVolumeComparison(lbs) {
     if (lbs >= halfway) bestIdx = bestIdx + 1;
   }
   const best = items[bestIdx];
-  const count = (lbs / best.lbs).toFixed(1).replace(/\.0$/, "");
-  const plural = parseFloat(count) !== 1;
+  const count = Math.round(lbs / best.lbs);
+  const plural = count !== 1;
   const name = plural && best.plural ? best.plural : plural ? best.name + "s" : best.name;
   return { text: count + " " + name, emoji: best.emoji };
 }
@@ -360,9 +354,46 @@ function GymDump() {
     return () => clearInterval(timerRef.current);
   }, [timerRunning]);
 
-  useEffect(() => { const e = loadData(); if (e) setData(e); else { setData(INITIAL_DATA); saveData(INITIAL_DATA); } setLoading(false); }, []);
+  useEffect(() => { const e = loadData(); if (e) setData(e); else { setData(INITIAL_DATA); saveData(INITIAL_DATA); }
+    // Restore in-progress session state
+    try {
+      const ss = localStorage.getItem(SESSION_STATE_KEY);
+      if (ss) {
+        const parsed = JSON.parse(ss);
+        if (parsed.activeSessionId) {
+          setActiveSessionId(parsed.activeSessionId);
+          setActiveWeekId(parsed.activeWeekId);
+          setWorkoutLog(parsed.workoutLog || {});
+          setSkippedExercises(parsed.skippedExercises || {});
+          setDoneExercises(parsed.doneExercises || {});
+          setTempExercises(parsed.tempExercises || null);
+          setContinuingLogId(parsed.continuingLogId || null);
+          if (parsed.otherSessions) sessionStatesRef.current = parsed.otherSessions;
+        } else if (parsed.otherSessions && Object.keys(parsed.otherSessions).length > 0) {
+          sessionStatesRef.current = parsed.otherSessions;
+        }
+      }
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  // Auto-save in-progress state to localStorage
+  useEffect(() => {
+    if (!data) return;
+    const hasActive = activeSessionId && Object.values(workoutLog).some(v => v.sets?.length > 0);
+    const hasOther = Object.keys(sessionStatesRef.current).length > 0;
+    if (hasActive || hasOther) {
+      const state = {
+        activeSessionId, activeWeekId, workoutLog, skippedExercises, doneExercises,
+        tempExercises, continuingLogId, otherSessions: sessionStatesRef.current
+      };
+      try { localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(state)); } catch {}
+    } else {
+      try { localStorage.removeItem(SESSION_STATE_KEY); } catch {}
+    }
+  }, [workoutLog, skippedExercises, doneExercises, activeSessionId, view]);
   const save = useCallback(nd => { setData(nd); saveData(nd); }, []);
-  const resetToDefaults = () => { save(INITIAL_DATA); setConfirmReset(false); setView("home"); };
+  const resetToDefaults = () => { save(INITIAL_DATA); setConfirmReset(false); try { localStorage.removeItem(SESSION_STATE_KEY); } catch {} sessionStatesRef.current = {}; setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({}); setActiveSessionId(null); setActiveWeekId(null); setView("home"); };
   const exportData = (d) => { const toExport = d || data; const b = new Blob([JSON.stringify(toExport, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "gymdump-backup.json"; a.click(); URL.revokeObjectURL(u); };
   const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.program && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; save(d); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
   const getSession = (wId, sId) => { const w = data.program.weeks.find(w => w.id === wId); return w?.sessions.find(s => s.id === sId); };
@@ -371,6 +402,12 @@ function GymDump() {
     if (activeSessionId && Object.values(workoutLog).some(v => v.sets?.length > 0)) {
       sessionStatesRef.current[activeSessionId] = { weekId: activeWeekId, workoutLog, skippedExercises, doneExercises, tempExercises, continuingLogId };
     }
+    // Persist all session states
+    try {
+      const state = { activeSessionId: null, activeWeekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: null, continuingLogId: null, otherSessions: sessionStatesRef.current };
+      if (Object.keys(sessionStatesRef.current).length > 0) localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(state));
+      else localStorage.removeItem(SESSION_STATE_KEY);
+    } catch {}
   };
 
   const startSession = (weekId, sessId) => {
