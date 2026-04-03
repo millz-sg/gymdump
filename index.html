@@ -555,7 +555,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v6.1.2</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v6.2</p>
     </div>);
   };
 
@@ -841,7 +841,11 @@ function GymDump() {
     const addWeek = () => { save({ ...data, program: { ...data.program, weeks: [...data.program.weeks, { id: uid(), name: "Week " + (data.program.weeks.length + 1), sessions: [] }] } }); };
     const removeWeek = wid => {
       if (data.program.weeks.length <= 1) return;
-      save({ ...data, program: { ...data.program, weeks: data.program.weeks.filter(w => w.id !== wid) } });
+      const newWeeks = data.program.weeks.filter(w => w.id !== wid).map((w, i) => {
+        if (/^Week \d+$/.test(w.name)) return { ...w, name: "Week " + (i + 1) };
+        return w;
+      });
+      save({ ...data, program: { ...data.program, weeks: newWeeks } });
     };
     const removeSession = (weekId, sessId) => {
       const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: w.sessions.filter(s => s.id !== sessId) } : w);
@@ -861,7 +865,7 @@ function GymDump() {
       setShowAddSession(null); setAddSessionMode(null);
     };
     const addFromTemplate = (weekId, template) => {
-      const sessions = template.map(name => ({ id: uid(), name, exercises: [] }));
+      const sessions = template.sessions.map(name => ({ id: uid(), name, exercises: [] }));
       const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, ...sessions] } : w);
       save({ ...data, program: { weeks } });
       setShowAddSession(null); setAddSessionMode(null);
