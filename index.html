@@ -83,9 +83,9 @@ const INITIAL_DATA = { program: { weeks: [
       mkEx("Lateral Raises",3,15,12,2.5,3,"7.5+3 cable / rack 10s / 12 cybex"), mkEx("Preacher Curl Machine",3,10,75,5,2,""),
       mkEx("DB Bench Flat / Dips",3,10,75,5,2,"or dips") ]}
   ]}
-]}, logs: [], completedSessions: {} };
+]}, logs: [], completedSessions: {}, settings: { progressionTracking: true } };
 
-function loadData() { try { const r = localStorage.getItem(STORAGE_KEY); if (!r) return null; const d = JSON.parse(r); if (!d.completedSessions) d.completedSessions = {}; return d; } catch { return null; } }
+function loadData() { try { const r = localStorage.getItem(STORAGE_KEY); if (!r) return null; const d = JSON.parse(r); if (!d.completedSessions) d.completedSessions = {}; if (!d.settings) d.settings = { progressionTracking: true }; if (d.settings.progressionTracking === undefined) d.settings.progressionTracking = true; return d; } catch { return null; } }
 function saveData(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch(e) { console.error(e); } }
 function getExerciseHistory(name, logs) {
   const e = [];
@@ -326,6 +326,9 @@ function GymDump() {
   const [showEditInfo, setShowEditInfo] = useState(false);
   const [sessionModal, setSessionModal] = useState(null);
   const [continuingLogId, setContinuingLogId] = useState(null);
+  const [quickSessionName, setQuickSessionName] = useState("");
+  const [quickSessionExercises, setQuickSessionExercises] = useState([]);
+  const [quickAddTab, setQuickAddTab] = useState("my");
   const sessionStatesRef = useRef({});
   const weightRef = useRef(null);
   const repsRef = useRef(null);
@@ -361,6 +364,7 @@ function GymDump() {
           setDoneExercises(parsed.doneExercises || {});
           setTempExercises(parsed.tempExercises || null);
           setContinuingLogId(parsed.continuingLogId || null);
+          setQuickSessionName(parsed.quickSessionName || "");
           if (parsed.otherSessions) sessionStatesRef.current = parsed.otherSessions;
         } else if (parsed.otherSessions && Object.keys(parsed.otherSessions).length > 0) {
           sessionStatesRef.current = parsed.otherSessions;
@@ -378,7 +382,7 @@ function GymDump() {
     if (hasActive || hasOther) {
       const state = {
         activeSessionId, activeWeekId, workoutLog, skippedExercises, doneExercises,
-        tempExercises, continuingLogId, otherSessions: sessionStatesRef.current
+        tempExercises, continuingLogId, quickSessionName, otherSessions: sessionStatesRef.current
       };
       try { localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(state)); } catch {}
     } else {
@@ -390,10 +394,28 @@ function GymDump() {
   const exportData = (d) => { const toExport = d || data; const b = new Blob([JSON.stringify(toExport, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "gymdump-backup.json"; a.click(); URL.revokeObjectURL(u); };
   const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.program && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; save(d); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
   const getSession = (wId, sId) => { const w = data.program.weeks.find(w => w.id === wId); return w?.sessions.find(s => s.id === sId); };
+  const getAllProgramExercises = () => {
+    const seen = {}; const result = [];
+    data.program.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => {
+      if (!seen[e.name]) { seen[e.name] = true; result.push(e); }
+    })));
+    return result;
+  };
+
+  const startQuickWorkout = () => {
+    if (quickSessionExercises.length === 0) return;
+    saveCurrentSessionState();
+    const tempId = "quick-" + uid();
+    setActiveWeekId(null); setActiveSessionId(tempId);
+    setTempExercises(quickSessionExercises.map(e => ({ ...e, id: uid() })));
+    setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({});
+    setShowAddWorkout(false); setContinuingLogId(null);
+    setView("workout");
+  };
 
   const saveCurrentSessionState = () => {
     if (activeSessionId && Object.values(workoutLog).some(v => v.sets?.length > 0)) {
-      sessionStatesRef.current[activeSessionId] = { weekId: activeWeekId, workoutLog, skippedExercises, doneExercises, tempExercises, continuingLogId };
+      sessionStatesRef.current[activeSessionId] = { weekId: activeWeekId, workoutLog, skippedExercises, doneExercises, tempExercises, continuingLogId, quickSessionName };
     }
     // Persist all session states
     try {
@@ -419,6 +441,7 @@ function GymDump() {
     setWorkoutLog(ss.workoutLog); setSkippedExercises(ss.skippedExercises);
     setDoneExercises(ss.doneExercises); setTempExercises(ss.tempExercises);
     setContinuingLogId(ss.continuingLogId || null);
+    setQuickSessionName(ss.quickSessionName || "");
     setShowAddWorkout(false);
     setView("workout");
   };
@@ -488,6 +511,40 @@ function GymDump() {
         })}</div>
       </div>))}
 
+      <button onClick={() => { setQuickSessionName(""); setQuickSessionExercises([]); setQuickAddTab("my"); setView("quickSetup"); }}
+        className="w-full py-3 mb-3 text-neutral-400 text-sm text-center active:text-white border border-dashed border-neutral-700 rounded-xl">+ Quick Session</button>
+
+      {/* In-progress quick sessions */}
+      {(() => {
+        const quickSessions = [];
+        if (activeSessionId && String(activeSessionId).startsWith("quick-") && Object.values(workoutLog).some(v => v.sets?.length > 0)) {
+          quickSessions.push({ id: activeSessionId, name: quickSessionName || "Quick Session", isCurrent: true });
+        }
+        Object.keys(sessionStatesRef.current).forEach(sid => {
+          if (String(sid).startsWith("quick-") && sid !== activeSessionId) {
+            const ss = sessionStatesRef.current[sid];
+            quickSessions.push({ id: sid, name: ss.quickSessionName || "Quick Session", isCurrent: false, state: ss });
+          }
+        });
+        if (quickSessions.length === 0) return null;
+        return quickSessions.map(qs => (
+          <div key={qs.id} className="mb-3 rounded-2xl p-4 cursor-pointer active:opacity-80"
+            style={{ border: "2px dashed #d97706", background: "#1a1500" }}
+            onClick={() => {
+              if (qs.isCurrent) { setView("workout"); }
+              else { resumeSession(qs.id); }
+            }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-amber-400 font-semibold text-sm">{qs.name}</p>
+                <p className="text-amber-500/60 text-xs mt-0.5">Quick Session · In Progress</p>
+              </div>
+              <span className="text-amber-500 text-lg">›</span>
+            </div>
+          </div>
+        ));
+      })()}
+
       {recentLogs.length > 0 && (<div className="mt-6">
         <div className="flex items-center justify-between mb-2 px-1"><p className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Recent Sessions</p><button onClick={() => setView("history")} className="text-xs font-bold text-neutral-500 uppercase tracking-widest active:text-white">All History ›</button></div>
         {recentLogs.map((log, i) => {
@@ -555,7 +612,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v6.2</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v6.5</p>
     </div>);
   };
 
@@ -583,8 +640,11 @@ function GymDump() {
 
   // ── WORKOUT SESSION ──
   const WorkoutView = () => {
-    const session = getSession(activeWeekId, activeSessionId); if (!session) return null;
+    const session = getSession(activeWeekId, activeSessionId);
+    const isQuickSession = !session && tempExercises;
+    if (!session && !isQuickSession) return null;
     const exercises = tempExercises || session.exercises;
+    const sessName = isQuickSession ? (quickSessionName || "Quick Session") : session.name;
     const volume = getVolume(workoutLog);
     const loggedCount = Object.values(workoutLog).filter(v => v.sets?.length > 0).length;
     const doneCount = Object.values(doneExercises).filter(Boolean).length;
@@ -596,19 +656,19 @@ function GymDump() {
         if (workoutLog[ex.id]?.sets?.length > 0) return { name: ex.name, sets: workoutLog[ex.id].sets, feeling: workoutLog[ex.id].feeling || "normal" };
         return null;
       }).filter(Boolean);
-      const nc = { ...data.completedSessions, [activeSessionId]: today() };
+      const nc = isQuickSession ? data.completedSessions : { ...data.completedSessions, [activeSessionId]: today() };
       const baseLogs = continuingLogId ? data.logs.filter(l => l.id !== continuingLogId) : data.logs;
       let newData;
       if (exList.length === 0) { newData = { ...data, logs: baseLogs, completedSessions: nc }; }
-      else { newData = { ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: session.name, exercises: exList }], completedSessions: nc }; }
+      else { newData = { ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: sessName, exercises: exList }], completedSessions: nc }; }
       save(newData);
       setContinuingLogId(null);
       delete sessionStatesRef.current[activeSessionId];
       setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({});
-      setActiveSessionId(null); setActiveWeekId(null);
+      setActiveSessionId(null); setActiveWeekId(null); setTempExercises(null);
       setView("home");
     };
-    const addTempWorkout = () => { const nm = newWorkoutRef.current?.value; if (!nm || !nm.trim()) return; setTempExercises([...(tempExercises || session.exercises), mkEx(nm.trim(), 3, 10, 0, 5, 2, "")]); if (newWorkoutRef.current) newWorkoutRef.current.value = ""; setShowAddWorkout(false); };
+    const addTempWorkout = () => { const nm = newWorkoutRef.current?.value; if (!nm || !nm.trim()) return; setTempExercises([...(tempExercises || session?.exercises || []), mkEx(nm.trim(), 3, 10, 0, 5, 2, "")]); if (newWorkoutRef.current) newWorkoutRef.current.value = ""; setShowAddWorkout(false); };
 
     const goBack = () => {
       if (continuingLogId) {
@@ -622,7 +682,7 @@ function GymDump() {
     };
 
     return (<div>
-      <Header title={session.name} onBack={goBack} />
+      <Header title={sessName} onBack={goBack} />
 
       {/* Volume + Progress bar */}
       <div className="bg-neutral-900 rounded-2xl p-3 mb-4">
@@ -676,7 +736,7 @@ function GymDump() {
               <LastPerf last={last} />
               {!last && !ex.targetWeight && <p className="text-neutral-600 text-xs mt-1">{ex.defaultSets}x{ex.defaultReps} target</p>}
               <Notes text={ex.notes} />
-              {nudge && <p className="text-amber-400 text-xs mt-1 font-medium">↑ Try {nudge.suggested}lbs</p>}
+              {ex.progressionEnabled !== false && nudge && <p className="text-amber-400 text-xs mt-1 font-medium">↑ Try {nudge.suggested}lbs</p>}
             </div>
           </SwipeCard>
         );
@@ -746,12 +806,19 @@ function GymDump() {
           <div><label className="text-neutral-500 text-xs block mb-1">Workout Name</label><input value={eiName} onChange={e => setEiName(e.target.value)} className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div><label className="text-emerald-500 text-xs block mb-1">Target Weight (lbs)</label><input type="number" inputMode="decimal" value={eiTarget} onChange={e => setEiTarget(e.target.value)} placeholder="e.g. 65" className="w-full bg-neutral-800 text-emerald-400 text-center font-mono rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div><label className="text-neutral-500 text-xs block mb-1">Setup Notes</label><input value={eiNotes} onChange={e => setEiNotes(e.target.value)} placeholder="Machine settings..." className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="flex items-center justify-between py-2">
+            <div><p className="text-neutral-400 text-xs">Progression Nudges</p></div>
+            <button onClick={() => { const oldName = exDef.name; const on = exDef.progressionEnabled !== false; const weeks = data.program.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === oldName ? { ...e, progressionEnabled: !on } : e) })) })); save({ ...data, program: { weeks } }); }}
+              className={"w-12 h-7 rounded-full transition-all flex items-center " + (exDef.progressionEnabled !== false ? "bg-emerald-600 justify-end" : "bg-neutral-700 justify-start")}>
+              <div className="w-5 h-5 bg-white rounded-full mx-1 shadow" />
+            </button>
+          </div>
+          {exDef.progressionEnabled !== false && <div className="grid grid-cols-2 gap-2">
             <div><label className="text-neutral-500 text-xs block mb-1">Weight +</label><input type="number" inputMode="decimal" value={eiInc} onChange={e => setEiInc(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
             <div><label className="text-neutral-500 text-xs block mb-1">After N sessions</label><input type="number" inputMode="numeric" value={eiNudge} onChange={e => setEiNudge(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
             <div><label className="text-neutral-500 text-xs block mb-1">Target sets</label><input type="number" inputMode="numeric" value={eiSets} onChange={e => setEiSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
             <div><label className="text-neutral-500 text-xs block mb-1">Target reps</label><input type="number" inputMode="numeric" value={eiReps} onChange={e => setEiReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
-          </div>
+          </div>}
           <Btn onClick={saveWorkoutInfo} className="w-full text-sm">Save Settings</Btn>
         </div>
       </Card>)}
@@ -762,7 +829,7 @@ function GymDump() {
         {lastPerf && <div className="flex items-center justify-between"><span className="text-neutral-500 text-xs font-bold uppercase tracking-wider">Last</span><div className="text-right"><span className="text-neutral-400 text-xs font-mono">{lastPerf.sets.map(s => s.weight+"x"+s.reps).join(", ")}</span>{lastPerf.feeling !== "normal" && <span className={"text-xs ml-1 " + (lastPerf.feeling === "strong" ? "text-emerald-400" : "text-red-400")}>{lastPerf.feeling === "strong" ? "↑" : "↓"}</span>}<span className="text-neutral-600 text-xs ml-1.5">{formatDate(lastPerf.date)}</span></div></div>}
         {exDef.notes ? <Notes text={exDef.notes} /> : null}
       </div>
-      {nudge && <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-3 mb-3"><p className="text-amber-400 text-sm font-medium">↑ Hit {nudge.current}lbs for {nudge.sessions} sessions — try {nudge.suggested}lbs</p></div>}
+      {exDef.progressionEnabled !== false && nudge && <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-3 mb-3"><p className="text-amber-400 text-sm font-medium">↑ Hit {nudge.current}lbs for {nudge.sessions} sessions — try {nudge.suggested}lbs</p></div>}
 
       {/* Rest Timer */}
       <Card className="mb-3">
@@ -921,6 +988,90 @@ function GymDump() {
     </div>);
   };
 
+  // ── QUICK SESSION SETUP ──
+  const QuickSessionSetup = () => {
+    const allExercises = getAllProgramExercises();
+    const [newExName, setNewExName] = useState("");
+    const [newExSets, setNewExSets] = useState("3");
+    const [newExReps, setNewExReps] = useState("8");
+    const [newExTarget, setNewExTarget] = useState("");
+    const [newExNotes, setNewExNotes] = useState("");
+    const [newExInc, setNewExInc] = useState("5");
+    const [newExNudge, setNewExNudge] = useState("2");
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const suggestions = newExName.length >= 2 ? COMMON_EXERCISES.filter(e => e.toLowerCase().includes(newExName.toLowerCase()) && !quickSessionExercises.find(q => q.name === e)).slice(0, 6) : [];
+
+    const addFromProgram = (ex) => {
+      if (quickSessionExercises.find(q => q.name === ex.name)) return;
+      setQuickSessionExercises([...quickSessionExercises, { ...ex, id: uid() }]);
+    };
+    const addNewExercise = () => {
+      if (!newExName.trim()) return;
+      if (quickSessionExercises.find(q => q.name === newExName.trim())) return;
+      const ex = mkEx(newExName.trim(), parseInt(newExSets) || 3, parseInt(newExReps) || 8, parseFloat(newExTarget) || 0, parseFloat(newExInc) || 5, parseInt(newExNudge) || 2, newExNotes.trim());
+      setQuickSessionExercises([...quickSessionExercises, ex]);
+      setNewExName(""); setNewExNotes(""); setNewExTarget(""); setNewExSets("3"); setNewExReps("8"); setNewExInc("5"); setNewExNudge("2"); setShowSuggestions(false);
+    };
+    const removeExercise = (idx) => { setQuickSessionExercises(quickSessionExercises.filter((_, i) => i !== idx)); };
+
+    return (<div>
+      <Header title="Quick Session" onBack={() => setView("home")} />
+      <Card className="mb-4">
+        <p className="text-xs text-neutral-500 mb-1">Session Name</p>
+        <input value={quickSessionName} onChange={e => setQuickSessionName(e.target.value)} placeholder="e.g. Extra Push Day" className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" />
+      </Card>
+
+      {quickSessionExercises.length > 0 && (<div className="mb-4">
+        <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Added ({quickSessionExercises.length})</p>
+        {quickSessionExercises.map((ex, i) => (
+          <div key={i} className="flex items-center justify-between bg-neutral-900 rounded-xl p-3 mb-1.5">
+            <div><p className="text-white text-sm font-medium">{ex.name}</p><p className="text-neutral-500 text-xs">{ex.defaultSets}x{ex.defaultReps}{ex.targetWeight > 0 ? " @ " + ex.targetWeight + "lbs" : ""}</p></div>
+            <button onClick={() => removeExercise(i)} className="text-neutral-600 px-2 active:text-red-400">x</button>
+          </div>
+        ))}
+      </div>)}
+
+      <div className="flex gap-1 mb-3">
+        <button onClick={() => setQuickAddTab("my")} className={"flex-1 py-2 rounded-xl text-sm font-medium transition-all " + (quickAddTab === "my" ? "bg-emerald-600 text-white" : "bg-neutral-800 text-neutral-500")}>My Workouts</button>
+        <button onClick={() => setQuickAddTab("new")} className={"flex-1 py-2 rounded-xl text-sm font-medium transition-all " + (quickAddTab === "new" ? "bg-emerald-600 text-white" : "bg-neutral-800 text-neutral-500")}>New Workout</button>
+      </div>
+
+      {quickAddTab === "my" && (<Card>
+        {allExercises.length === 0 ? <p className="text-neutral-500 text-sm text-center py-4">No workouts in your program yet</p>
+        : <div className="space-y-1">{allExercises.filter(e => !quickSessionExercises.find(q => q.name === e.name)).map(ex => (
+          <button key={ex.name} onClick={() => addFromProgram(ex)}
+            className="w-full text-left bg-neutral-800 rounded-xl py-2.5 px-3 active:bg-neutral-700">
+            <p className="text-white text-sm">{ex.name}</p>
+            <p className="text-neutral-500 text-xs">{ex.defaultSets}x{ex.defaultReps}{ex.targetWeight > 0 ? " @ " + ex.targetWeight + "lbs" : ""}{ex.notes ? " · " + ex.notes : ""}</p>
+          </button>
+        ))}</div>}
+      </Card>)}
+
+      {quickAddTab === "new" && (<Card>
+        <div className="relative">
+          <input value={newExName} onChange={e => { setNewExName(e.target.value); setShowSuggestions(true); }} onFocus={() => setShowSuggestions(true)} placeholder="Workout name (e.g. Lat Pulldown)" className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none mb-1 focus:ring-2 focus:ring-emerald-500/50" />
+          {showSuggestions && suggestions.length > 0 && (<div className="absolute left-0 right-0 top-full z-10 bg-neutral-800 rounded-xl border border-neutral-700 overflow-hidden mb-2">{suggestions.map(s => (<button key={s} onClick={() => { setNewExName(s); setShowSuggestions(false); }} className="w-full text-left px-3 py-2.5 text-sm text-white active:bg-neutral-700 border-b border-neutral-700/50 last:border-0">{s}</button>))}</div>)}
+        </div>
+        <div className="flex gap-2 mb-2 mt-1">
+          <div className="flex-1"><label className="text-neutral-500 text-xs">Sets</label><input type="number" inputMode="numeric" value={newExSets} onChange={e => setNewExSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          <div className="flex-1"><label className="text-neutral-500 text-xs">Reps</label><input type="number" inputMode="numeric" value={newExReps} onChange={e => setNewExReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          <div className="flex-1"><label className="text-emerald-500 text-xs">Target lbs</label><input type="number" inputMode="decimal" value={newExTarget} onChange={e => setNewExTarget(e.target.value)} className="w-full bg-neutral-800 text-emerald-400 text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="-" /></div>
+        </div>
+        <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 mt-3">Progression</p>
+        <div className="flex gap-2 mb-2">
+          <div className="flex-1"><label className="text-neutral-500 text-xs">Weight +</label><input type="number" inputMode="decimal" value={newExInc} onChange={e => setNewExInc(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          <div className="flex-1"><label className="text-neutral-500 text-xs">After N sessions</label><input type="number" inputMode="numeric" value={newExNudge} onChange={e => setNewExNudge(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+        </div>
+        <input value={newExNotes} onChange={e => setNewExNotes(e.target.value)} placeholder="Setup notes (machine settings, grip, etc.)" className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none mb-3 focus:ring-2 focus:ring-emerald-500/50" />
+        <Btn onClick={addNewExercise} className="w-full">+ Add</Btn>
+      </Card>)}
+
+      {quickSessionExercises.length > 0 && (
+        <Btn variant="primary" onClick={startQuickWorkout} className="w-full mt-5 py-4 text-base">Start Workout ({quickSessionExercises.length} exercises)</Btn>
+      )}
+    </div>);
+  };
+
   // ── EDIT SESSION ──
   const EditSessionView = () => {
     const week = data.program.weeks.find(w => w.id === editWeekId);
@@ -935,6 +1086,15 @@ function GymDump() {
     const [newExNudge, setNewExNudge] = useState("2");
     const [showSuggestions, setShowSuggestions] = useState(false);
     const suggestions = newExName.length >= 2 ? COMMON_EXERCISES.filter(e => e.toLowerCase().includes(newExName.toLowerCase())).slice(0, 6) : [];
+
+    const [editAddTab, setEditAddTab] = useState("new");
+    const allProgramExercises = getAllProgramExercises();
+    const addFromProgram = (ex) => {
+      if (session.exercises.find(e => e.name === ex.name)) return;
+      const newEx = { ...ex, id: uid() };
+      const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: [...s.exercises, newEx] } : s) } : w);
+      save({ ...data, program: { weeks } });
+    };
 
     const updateName = () => { if (!sessionName.trim()) return; const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, name: sessionName.trim() } : s) } : w); save({ ...data, program: { weeks } }); };
     const addExercise = () => {
@@ -952,22 +1112,38 @@ function GymDump() {
       {session.exercises.map(ex => (<Card key={ex.id} className="mb-2"><div className="flex items-center justify-between"><div className="flex-1 min-w-0" onClick={() => { setEditExercise(ex); setView("editExerciseDetail"); }}><p className="text-white font-medium truncate">{ex.name}</p><div className="flex items-center gap-2 mt-0.5"><span className="text-neutral-500 text-xs">{ex.defaultSets}x{ex.defaultReps}</span>{ex.targetWeight > 0 && <span className="text-emerald-400 text-xs font-mono">-> {ex.targetWeight}lbs</span>}</div><Notes text={ex.notes} /></div><div className="flex items-center gap-1 flex-shrink-0"><button onClick={() => moveExercise(ex.id, -1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▲</button><button onClick={() => moveExercise(ex.id, 1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▼</button><button onClick={() => removeExercise(ex.id)} className="text-neutral-600 px-2 py-1 active:text-red-400">x</button></div></div></Card>))}
       <Card className="mt-4 border border-dashed border-neutral-700">
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">Add Workout</p>
-        <div className="relative">
-          <input value={newExName} onChange={e => { setNewExName(e.target.value); setShowSuggestions(true); }} onFocus={() => setShowSuggestions(true)} placeholder="Workout name (e.g. Lat Pulldown)" className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none mb-1 focus:ring-2 focus:ring-emerald-500/50" />
-          {showSuggestions && suggestions.length > 0 && (<div className="absolute left-0 right-0 top-full z-10 bg-neutral-800 rounded-xl border border-neutral-700 overflow-hidden mb-2">{suggestions.map(s => (<button key={s} onClick={() => { setNewExName(s); setShowSuggestions(false); }} className="w-full text-left px-3 py-2.5 text-sm text-white active:bg-neutral-700 border-b border-neutral-700/50 last:border-0">{s}</button>))}</div>)}
+        <div className="flex gap-1 mb-3">
+          <button onClick={() => setEditAddTab("my")} className={"flex-1 py-2 rounded-xl text-sm font-medium transition-all " + (editAddTab === "my" ? "bg-emerald-600 text-white" : "bg-neutral-800 text-neutral-500")}>My Workouts</button>
+          <button onClick={() => setEditAddTab("new")} className={"flex-1 py-2 rounded-xl text-sm font-medium transition-all " + (editAddTab === "new" ? "bg-emerald-600 text-white" : "bg-neutral-800 text-neutral-500")}>New Workout</button>
         </div>
-        <div className="flex gap-2 mb-2 mt-1">
-          <div className="flex-1"><label className="text-neutral-500 text-xs">Sets</label><input type="number" inputMode="numeric" value={newExSets} onChange={e => setNewExSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
-          <div className="flex-1"><label className="text-neutral-500 text-xs">Reps</label><input type="number" inputMode="numeric" value={newExReps} onChange={e => setNewExReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
-          <div className="flex-1"><label className="text-emerald-500 text-xs">Target lbs</label><input type="number" inputMode="decimal" value={newExTarget} onChange={e => setNewExTarget(e.target.value)} className="w-full bg-neutral-800 text-emerald-400 text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="-" /></div>
-        </div>
-        <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 mt-3">Progression</p>
-        <div className="flex gap-2 mb-2">
-          <div className="flex-1"><label className="text-neutral-500 text-xs">Weight +</label><input type="number" inputMode="decimal" value={newExInc} onChange={e => setNewExInc(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
-          <div className="flex-1"><label className="text-neutral-500 text-xs">After N sessions</label><input type="number" inputMode="numeric" value={newExNudge} onChange={e => setNewExNudge(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
-        </div>
-        <input value={newExNotes} onChange={e => setNewExNotes(e.target.value)} placeholder="Setup notes (machine settings, grip, etc.)" className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none mb-3 focus:ring-2 focus:ring-emerald-500/50" />
-        <Btn onClick={addExercise} className="w-full">+ Add</Btn>
+        {editAddTab === "my" && (<div>
+          {allProgramExercises.filter(e => !session.exercises.find(s => s.name === e.name)).length === 0
+            ? <p className="text-neutral-500 text-sm text-center py-4">All your workouts are already in this session</p>
+            : <div className="space-y-1">{allProgramExercises.filter(e => !session.exercises.find(s => s.name === e.name)).map(ex => (
+              <button key={ex.name} onClick={() => addFromProgram(ex)} className="w-full text-left bg-neutral-800 rounded-xl py-2.5 px-3 active:bg-neutral-700">
+                <p className="text-white text-sm">{ex.name}</p>
+                <p className="text-neutral-500 text-xs">{ex.defaultSets}x{ex.defaultReps}{ex.targetWeight > 0 ? " @ " + ex.targetWeight + "lbs" : ""}{ex.notes ? " · " + ex.notes : ""}</p>
+              </button>
+            ))}</div>}
+        </div>)}
+        {editAddTab === "new" && (<div>
+          <div className="relative">
+            <input value={newExName} onChange={e => { setNewExName(e.target.value); setShowSuggestions(true); }} onFocus={() => setShowSuggestions(true)} placeholder="Workout name (e.g. Lat Pulldown)" className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none mb-1 focus:ring-2 focus:ring-emerald-500/50" />
+            {showSuggestions && suggestions.length > 0 && (<div className="absolute left-0 right-0 top-full z-10 bg-neutral-800 rounded-xl border border-neutral-700 overflow-hidden mb-2">{suggestions.map(s => (<button key={s} onClick={() => { setNewExName(s); setShowSuggestions(false); }} className="w-full text-left px-3 py-2.5 text-sm text-white active:bg-neutral-700 border-b border-neutral-700/50 last:border-0">{s}</button>))}</div>)}
+          </div>
+          <div className="flex gap-2 mb-2 mt-1">
+            <div className="flex-1"><label className="text-neutral-500 text-xs">Sets</label><input type="number" inputMode="numeric" value={newExSets} onChange={e => setNewExSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+            <div className="flex-1"><label className="text-neutral-500 text-xs">Reps</label><input type="number" inputMode="numeric" value={newExReps} onChange={e => setNewExReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+            <div className="flex-1"><label className="text-emerald-500 text-xs">Target lbs</label><input type="number" inputMode="decimal" value={newExTarget} onChange={e => setNewExTarget(e.target.value)} className="w-full bg-neutral-800 text-emerald-400 text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="-" /></div>
+          </div>
+          <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 mt-3">Progression</p>
+          <div className="flex gap-2 mb-2">
+            <div className="flex-1"><label className="text-neutral-500 text-xs">Weight +</label><input type="number" inputMode="decimal" value={newExInc} onChange={e => setNewExInc(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+            <div className="flex-1"><label className="text-neutral-500 text-xs">After N sessions</label><input type="number" inputMode="numeric" value={newExNudge} onChange={e => setNewExNudge(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
+          </div>
+          <input value={newExNotes} onChange={e => setNewExNotes(e.target.value)} placeholder="Setup notes (machine settings, grip, etc.)" className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none mb-3 focus:ring-2 focus:ring-emerald-500/50" />
+          <Btn onClick={addExercise} className="w-full">+ Add</Btn>
+        </div>)}
       </Card>
     </div>);
   };
@@ -995,13 +1171,13 @@ function GymDump() {
         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3"><label className="text-emerald-500 text-xs font-bold uppercase tracking-wider block mb-1">Target Weight (lbs)</label><input type="number" inputMode="decimal" value={exTarget} onChange={e => setExTarget(e.target.value)} placeholder="e.g. 65" className="w-full bg-neutral-800 text-emerald-400 text-center text-lg font-mono rounded-xl py-2.5 px-3 outline-none focus:ring-2 focus:ring-emerald-500/50" /><p className="text-emerald-500/50 text-xs mt-1.5">Update when you are ready to progress.</p></div>
         <div><label className="text-neutral-500 text-xs block mb-1">Setup Notes</label><input value={exNotes} onChange={e => setExNotes(e.target.value)} placeholder="Machine settings, grip, position..." className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest pt-2">Progression Rule</p>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 mt-3">
           <div><label className="text-neutral-500 text-xs block mb-1">Weight +</label><input type="number" inputMode="decimal" value={inc} onChange={e => setInc(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div><label className="text-neutral-500 text-xs block mb-1">After N sessions</label><input type="number" inputMode="numeric" value={sNudge} onChange={e => setSNudge(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div><label className="text-neutral-500 text-xs block mb-1">Target sets</label><input type="number" inputMode="numeric" value={tSets} onChange={e => setTSets(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div><label className="text-neutral-500 text-xs block mb-1">Target reps</label><input type="number" inputMode="numeric" value={tReps} onChange={e => setTReps(e.target.value)} className="w-full bg-neutral-800 text-white text-center rounded-xl py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
         </div>
-        <p className="text-neutral-600 text-xs">{parseFloat(inc) === 0 ? "No weight nudge (bodyweight)" : "Nudge +" + (inc || 5) + "lbs after hitting " + (tSets || 3) + "x" + (tReps || 8) + " for " + (sNudge || 2) + " sessions"}</p>
+        <p className="text-neutral-600 text-xs mt-3">{parseFloat(inc) === 0 ? "No weight nudge (bodyweight)" : "Nudge +" + (inc || 5) + "lbs after hitting " + (tSets || 3) + "x" + (tReps || 8) + " for " + (sNudge || 2) + " sessions"}</p>
         <Btn onClick={saveRule} className="w-full">Save</Btn>
       </Card>
     </div>);
@@ -1013,6 +1189,7 @@ function GymDump() {
     {view === "home" && <HomeView />}
     {view === "workout" && <WorkoutView />}
     {view === "logExercise" && <LogExerciseView />}
+    {view === "quickSetup" && <QuickSessionSetup />}
     {view === "program" && <ProgramView />}
     {view === "editSession" && <EditSessionView />}
     {view === "editExerciseDetail" && <EditExerciseDetailView />}
