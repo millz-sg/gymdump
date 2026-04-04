@@ -375,16 +375,6 @@ function GymDump() {
       }
     } catch {}
     setLoading(false);
-    // Check for shared session in URL
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const shareData = params.get("share");
-      if (shareData) {
-        const decoded = JSON.parse(atob(shareData.replace(/-/g,"+").replace(/_/g,"/")));
-        if (decoded.name && decoded.exercises) { setShareImport(decoded); }
-        window.history.replaceState({}, "", window.location.pathname);
-      }
-    } catch {}
   }, []);
 
   // Auto-save in-progress state to localStorage
@@ -410,12 +400,12 @@ function GymDump() {
 
   const shareSession = (sessName, exercises) => {
     const payload = { name: sessName, exercises: exercises.map(e => ({ name: e.name, defaultSets: e.defaultSets, defaultReps: e.defaultReps, targetWeight: e.targetWeight || 0, notes: e.notes || "", progressionEnabled: e.progressionEnabled !== false, progressionRule: e.progressionRule || {} })) };
-    const encoded = btoa(JSON.stringify(payload)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-    const url = window.location.origin + window.location.pathname + "?share=" + encoded;
+    const code = btoa(JSON.stringify(payload)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+    const text = "GymDump session: \"" + sessName + "\" (" + exercises.length + " exercises)\n\nPaste this code in your GymDump app:\n" + code;
     if (navigator.share) {
-      navigator.share({ title: "GymDump - " + sessName, text: sessName + " (" + exercises.length + " exercises)", url }).catch(() => {});
+      navigator.share({ title: "GymDump - " + sessName, text }).catch(() => {});
     } else {
-      navigator.clipboard.writeText(url).then(() => alert("Link copied!")).catch(() => {});
+      navigator.clipboard.writeText(code).then(() => alert("Code copied!")).catch(() => {});
     }
   };
 
@@ -426,7 +416,7 @@ function GymDump() {
   const importAsTemp = (imported) => {
     const tempId = "quick-" + uid();
     const exs = imported.exercises.map(e => ({ ...e, id: uid() }));
-    sessionStatesRef.current[tempId] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: exs, continuingLogId: null, quickSessionName: imported.name };
+    sessionStatesRef.current[tempId] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: exs, continuingLogId: null, quickSessionName: imported.name, shared: true };
     // Persist to localStorage
     const hasActive = activeSessionId && Object.values(workoutLog).some(v => v.sets?.length > 0);
     const state = { activeSessionId: hasActive ? activeSessionId : null, activeWeekId: hasActive ? activeWeekId : null, workoutLog: hasActive ? workoutLog : {}, skippedExercises: hasActive ? skippedExercises : {}, doneExercises: hasActive ? doneExercises : {}, tempExercises: hasActive ? tempExercises : null, continuingLogId: hasActive ? continuingLogId : null, quickSessionName: hasActive ? quickSessionName : "", otherSessions: sessionStatesRef.current };
@@ -562,26 +552,48 @@ function GymDump() {
         })}</div>
       </div>))}
 
-      <button onClick={() => { setQuickSessionName(""); setQuickSessionExercises([]); setQuickAddTab("my"); setView("quickSetup"); }}
-        className="w-full py-3 mb-3 text-neutral-400 text-sm text-center active:text-white border border-dashed border-neutral-700 rounded-xl">+ Quick Session</button>
+      <div className="flex gap-2 mb-3">
+        <button onClick={() => { setQuickSessionName(""); setQuickSessionExercises([]); setQuickAddTab("my"); setView("quickSetup"); }}
+          className="flex-1 py-3 text-neutral-400 text-sm text-center active:text-white border border-dashed border-neutral-700 rounded-xl">+ Quick Session</button>
+        <button onClick={async () => {
+          try {
+            const text = await navigator.clipboard.readText();
+            const clean = text.includes("Paste this code") ? text.split("\n").pop().trim() : text.trim();
+            const decoded = JSON.parse(atob(clean.replace(/-/g,"+").replace(/_/g,"/")));
+            if (decoded.name && decoded.exercises) { setShareImport(decoded); }
+            else { alert("Invalid session code"); }
+          } catch {
+            const code = prompt("Paste the session code:");
+            if (code) {
+              try {
+                const decoded = JSON.parse(atob(code.trim().replace(/-/g,"+").replace(/_/g,"/")));
+                if (decoded.name && decoded.exercises) { setShareImport(decoded); }
+                else { alert("Invalid session code"); }
+              } catch { alert("Invalid session code"); }
+            }
+          }
+        }}
+          className="py-3 px-4 text-neutral-400 text-sm text-center active:text-white border border-dashed border-indigo-900 rounded-xl">📥 Import</button>
+      </div>
 
       {/* In-progress and saved quick sessions */}
       {(() => {
         const quickSessions = [];
         if (activeSessionId && String(activeSessionId).startsWith("quick-")) {
-          quickSessions.push({ id: activeSessionId, name: quickSessionName || "Quick Session", isCurrent: true, hasLog: Object.values(workoutLog).some(v => v.sets?.length > 0), exercises: tempExercises });
+          const curShared = sessionStatesRef.current[activeSessionId]?.shared || false;
+          quickSessions.push({ id: activeSessionId, name: quickSessionName || "Quick Session", isCurrent: true, hasLog: Object.values(workoutLog).some(v => v.sets?.length > 0), exercises: tempExercises, shared: curShared });
         }
         Object.keys(sessionStatesRef.current).forEach(sid => {
           if (String(sid).startsWith("quick-") && sid !== activeSessionId) {
             const ss = sessionStatesRef.current[sid];
             const hasLog = ss.workoutLog && Object.values(ss.workoutLog).some(v => v.sets?.length > 0);
-            quickSessions.push({ id: sid, name: ss.quickSessionName || "Quick Session", isCurrent: false, state: ss, hasLog, exercises: ss.tempExercises });
+            quickSessions.push({ id: sid, name: ss.quickSessionName || "Quick Session", isCurrent: false, state: ss, hasLog, exercises: ss.tempExercises, shared: ss.shared || false });
           }
         });
         if (quickSessions.length === 0) return null;
         return quickSessions.map(qs => (
           <div key={qs.id} className="mb-3 rounded-2xl p-4 cursor-pointer active:opacity-80"
-            style={{ border: "2px dashed #d97706", background: "#1a1500" }}
+            style={{ border: qs.shared ? "2px dashed #6366f1" : "2px dashed #d97706", background: qs.shared ? "#0f0f1a" : "#1a1500" }}
             onTouchStart={() => qs.exercises && lpStart(qs.name, qs.exercises)}
             onTouchEnd={lpEnd} onTouchMove={lpEnd}
             onContextMenu={e => e.preventDefault()}
@@ -591,12 +603,12 @@ function GymDump() {
             })}>
             <div className="flex items-center justify-between">
               <div className="flex-1 min-w-0">
-                <p className="text-amber-400 font-semibold text-sm">{qs.name}</p>
-                <p className="text-amber-500/60 text-xs mt-0.5">Quick Session · {qs.hasLog ? "In Progress" : "Saved"}</p>
+                <p className={(qs.shared ? "text-indigo-400" : "text-amber-400") + " font-semibold text-sm"}>{qs.name}</p>
+                <p className={(qs.shared ? "text-indigo-500/60" : "text-amber-500/60") + " text-xs mt-0.5"}>{qs.shared ? "Shared Session" : "Quick Session"} · {qs.hasLog ? "In Progress" : "Saved"}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button className="text-neutral-600 text-sm px-1 py-1 active:text-red-400" onClick={e => { e.stopPropagation(); if (qs.isCurrent) { setActiveSessionId(null); setActiveWeekId(null); setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({}); setTempExercises(null); setQuickSessionName(""); } delete sessionStatesRef.current[qs.id]; const st = { activeSessionId: qs.isCurrent ? null : activeSessionId, activeWeekId: qs.isCurrent ? null : activeWeekId, workoutLog: qs.isCurrent ? {} : workoutLog, skippedExercises: qs.isCurrent ? {} : skippedExercises, doneExercises: qs.isCurrent ? {} : doneExercises, tempExercises: qs.isCurrent ? null : tempExercises, continuingLogId: qs.isCurrent ? null : continuingLogId, quickSessionName: qs.isCurrent ? "" : quickSessionName, otherSessions: sessionStatesRef.current }; try { localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(st)); } catch {} setView("home"); }}>✕</button>
-                <span className="text-amber-500 text-lg">›</span>
+                <span className={(qs.shared ? "text-indigo-500" : "text-amber-500") + " text-lg"}>›</span>
               </div>
             </div>
           </div>
@@ -1257,7 +1269,14 @@ function GymDump() {
 
     {/* Share Action Modal (from long-press) */}
     {shareAction && (<Modal title={shareAction.name} onClose={() => setShareAction(null)}>
-      <p className="text-neutral-400 text-sm mb-4">{shareAction.exercises.length} exercises</p>
+      <div className="bg-neutral-800 rounded-xl p-3 space-y-1 max-h-40 overflow-y-auto mb-4">
+        {shareAction.exercises.map((ex, i) => (
+          <div key={i} className="flex items-center justify-between">
+            <span className="text-neutral-300 text-xs">{ex.name}</span>
+            <span className="text-neutral-500 text-xs font-mono">{ex.defaultSets}x{ex.defaultReps}</span>
+          </div>
+        ))}
+      </div>
       <Btn variant="primary" onClick={() => { shareSession(shareAction.name, shareAction.exercises); setShareAction(null); }} className="w-full">Share Session</Btn>
     </Modal>)}
 
@@ -1276,7 +1295,7 @@ function GymDump() {
         <p className="text-neutral-500 text-xs mt-2">{shareImport.exercises.length} exercises</p>
       </div>
       <div className="space-y-2">
-        <Btn variant="primary" onClick={() => importAsTemp(shareImport)} className="w-full">Save as Temp Session</Btn>
+        <Btn variant="primary" onClick={() => importAsTemp(shareImport)} className="w-full">Save as Shared Session</Btn>
         {data?.program?.weeks?.length > 0 && (<>
           <p className="text-neutral-500 text-xs text-center mt-3 mb-1">Or add to your program:</p>
           {data.program.weeks.map(w => (
