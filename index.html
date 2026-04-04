@@ -133,8 +133,8 @@ const Btn = ({ children, onClick, variant = "primary", className = "", ...rest }
   const v = { primary: "bg-emerald-600 text-white px-5 py-3 text-base", secondary: "bg-neutral-800 text-neutral-200 px-4 py-2.5 text-sm", ghost: "text-neutral-400 px-3 py-2 text-sm", danger: "bg-red-900/40 text-red-400 px-4 py-2.5 text-sm" };
   return <button onClick={onClick} className={"font-semibold rounded-xl transition-all active:scale-95 " + v[variant] + " " + className} {...rest}>{children}</button>;
 };
-const Card = ({ children, className = "", onClick }) => (
-  <div onClick={onClick} className={"bg-neutral-900 rounded-2xl p-4 " + (onClick ? "cursor-pointer active:bg-neutral-800 " : "") + className}>{children}</div>
+const Card = ({ children, className = "", onClick, ...rest }) => (
+  <div onClick={onClick} {...rest} className={"bg-neutral-900 rounded-2xl p-4 " + (onClick ? "cursor-pointer active:bg-neutral-800 " : "") + className}>{children}</div>
 );
 const Header = ({ title, onBack, right }) => (
   <div className="flex items-center justify-between px-1 py-3 mb-2">
@@ -336,6 +336,7 @@ function GymDump() {
   const longPressRef = useRef({ timer: null, fired: false });
   const [confirmReset, setConfirmReset] = useState(false);
   const [shareImport, setShareImport] = useState(null);
+  const [shareAction, setShareAction] = useState(null);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const timerRef = useRef(null);
@@ -418,7 +419,7 @@ function GymDump() {
     }
   };
 
-  const lpStart = (fn) => { longPressRef.current.fired = false; longPressRef.current.timer = setTimeout(() => { longPressRef.current.fired = true; fn(); }, 500); };
+  const lpStart = (name, exercises) => { longPressRef.current.fired = false; longPressRef.current.timer = setTimeout(() => { longPressRef.current.fired = true; setShareAction({ name, exercises }); }, 500); };
   const lpEnd = () => { clearTimeout(longPressRef.current.timer); };
   const lpClick = (fn) => (e) => { if (longPressRef.current.fired) { e.preventDefault(); return; } fn(); };
 
@@ -542,7 +543,7 @@ function GymDump() {
           const isInProg = isCurrentActive || isInRef;
           const cardClass = ic ? "gd-done" : isInProg ? "gd-session-progress" : "";
           return (<Card key={sess.id} className={"flex-1 text-center " + cardClass}
-            onTouchStart={() => ec > 0 && lpStart(() => shareSession(sess.name, sess.exercises))}
+            onTouchStart={() => ec > 0 && lpStart(sess.name, sess.exercises)}
             onTouchEnd={lpEnd} onTouchMove={lpEnd}
             onContextMenu={e => e.preventDefault()}
             onClick={lpClick(() => {
@@ -581,7 +582,7 @@ function GymDump() {
         return quickSessions.map(qs => (
           <div key={qs.id} className="mb-3 rounded-2xl p-4 cursor-pointer active:opacity-80"
             style={{ border: "2px dashed #d97706", background: "#1a1500" }}
-            onTouchStart={() => qs.exercises && lpStart(() => shareSession(qs.name, qs.exercises))}
+            onTouchStart={() => qs.exercises && lpStart(qs.name, qs.exercises)}
             onTouchEnd={lpEnd} onTouchMove={lpEnd}
             onContextMenu={e => e.preventDefault()}
             onClick={lpClick(() => {
@@ -1253,6 +1254,12 @@ function GymDump() {
     {view === "history" && <HistoryView />}
     {view === "exerciseHistory" && <ExerciseHistoryView />}
     {view === "logDetail" && <LogDetailView />}
+
+    {/* Share Action Modal (from long-press) */}
+    {shareAction && (<Modal title={shareAction.name} onClose={() => setShareAction(null)}>
+      <p className="text-neutral-400 text-sm mb-4">{shareAction.exercises.length} exercises</p>
+      <Btn variant="primary" onClick={() => { shareSession(shareAction.name, shareAction.exercises); setShareAction(null); }} className="w-full">Share Session</Btn>
+    </Modal>)}
 
     {/* Share Import Modal */}
     {shareImport && (<Modal title="Shared Session" onClose={() => setShareImport(null)}>
