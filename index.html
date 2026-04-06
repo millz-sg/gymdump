@@ -49,44 +49,9 @@ const mkEx = (name, sets, reps, tw, inc, nudge, notes = "", progEnabled = true) 
   progressionRule: { weightIncrement: inc, targetSets: sets, targetReps: reps, sessionsBeforeNudge: nudge }
 });
 
-const INITIAL_DATA = { program: { weeks: [
-  { id: "w1", name: "Week 1", sessions: [
-    { id: "w1s1", name: "Upper 1", exercises: [
-      mkEx("Incline DB Bench",3,10,65,5,2,"be flat option"), mkEx("Lat Pull Down Neutral",3,10,147.5,5,2,"neutral medium mag grip"),
-      mkEx("Overhead Press",3,10,35,5,2,"dumb / 25-30 bar option"), mkEx("Long Pull",3,10,135,5,2,"narrow grip"),
-      mkEx("Cable Overhead Push / Skull Crusher",3,12,60,2.5,3,"60 white cable / 42.5+1.5 LF / SC barbell 60"),
-      mkEx("Iso Lat Bench Press",3,10,70,5,2,"plate + 25-30") ]},
-    { id: "w1s2", name: "Lower", exercises: [
-      mkEx("Leg Press",3,12,325,10,2,"3 plates + 10 per side"), mkEx("Hamstring Curl",3,10,120,5,2,""),
-      mkEx("Leg Extension",3,15,150,5,2,""), mkEx("Calf Raises",3,10,50,5,3,"seated or standing / 2 plate + 10"),
-      mkEx("RDL or HA",3,10,65,5,2,"slow tempo"), mkEx("Hack Squat",3,8,55,10,2,"1 plate + 10"),
-      mkEx("Hip Adduction",3,10,110,5,3,"machine") ]},
-    { id: "w1s3", name: "Upper 2", exercises: [
-      mkEx("Vertical Traction Reverse",3,10,205,5,2,"iso machine"), mkEx("ISO Lateral Low Row",3,10,95,5,2,"per side iso"),
-      mkEx("Pec Fly",3,10,150,5,3,"cable: 32+3 / 60 white 2 below 4 / cybex 32.5 #2 down #6 out / peck deck 145-150"),
-      mkEx("Lateral Raises",3,15,12,2.5,3,"7.5+3 cable / rack 10s / 12 cybex"), mkEx("Preacher Curl Machine",3,10,80,5,2,""),
-      mkEx("DB Shrugs (Lean Forward)",3,12,60,5,2,"60 DB / 55 each side on bar"), mkEx("DB Bench Flat",3,10,75,5,2,"") ]}
-  ]},
-  { id: "w2", name: "Week 2", sessions: [
-    { id: "w2s1", name: "Upper 1", exercises: [
-      mkEx("Wide Grip Lat Pull Down",3,10,135,5,2,""), mkEx("Incline DB Bench",3,10,65,5,2,"be flat option"),
-      mkEx("Upright Rows",3,10,60,5,2,"to failure"), mkEx("Long Pull",3,10,130,5,2,"narrow grip"),
-      mkEx("Tri Cable Arm Extension",3,10,62.5,2.5,3,"100 white / 62.5+3 cable / 62.5 cybex / 22.5+1.5 single"),
-      mkEx("Bi Reverse Bar / Cable Curl",3,10,40,2.5,3,"ez bar / cybex 37+3 / 60 white cable") ]},
-    { id: "w2s2", name: "Lower", exercises: [
-      mkEx("Leg Press",3,12,315,10,2,"3 plates per side"), mkEx("Hamstring Curl",3,10,120,5,2,""),
-      mkEx("Leg Extension",3,15,150,5,2,""), mkEx("Calf Raises",3,10,50,5,3,"seated or standing / 2 plate + 10"),
-      mkEx("RDL or HA",3,10,65,5,2,"slow tempo"), mkEx("Hack Squat",3,8,55,10,2,"1 plate + 10"),
-      mkEx("Hip Adduction",3,10,110,5,3,"machine") ]},
-    { id: "w2s3", name: "Upper 2", exercises: [
-      mkEx("Pull Ups",3,10,0,0,3,"bodyweight / max reps"), mkEx("T Bar Row",3,10,70,5,2,"1 plate + 25-30"),
-      mkEx("Pec Fly",3,10,145,5,3,"cable: 32+3 / 60 white 2 below 4 / cybex 32.5-36 #2 down #6 out / peck deck 145"),
-      mkEx("Lateral Raises",3,15,12,2.5,3,"7.5+3 cable / rack 10s / 12 cybex"), mkEx("Preacher Curl Machine",3,10,75,5,2,""),
-      mkEx("DB Bench Flat / Dips",3,10,75,5,2,"or dips") ]}
-  ]}
-]}, logs: [], completedSessions: {}, settings: { progressionTracking: true } };
+const INITIAL_DATA = { program: { weeks: [] }, logs: [], completedSessions: {}, savedQuickSessions: [], settings: { progressionTracking: true } };
 
-function loadData() { try { const r = localStorage.getItem(STORAGE_KEY); if (!r) return null; const d = JSON.parse(r); if (!d.completedSessions) d.completedSessions = {}; if (!d.settings) d.settings = { progressionTracking: true }; if (d.settings.progressionTracking === undefined) d.settings.progressionTracking = true; return d; } catch { return null; } }
+function loadData() { try { const r = localStorage.getItem(STORAGE_KEY); if (!r) return null; const d = JSON.parse(r); if (!d.completedSessions) d.completedSessions = {}; if (!d.savedQuickSessions) d.savedQuickSessions = []; if (!d.settings) d.settings = { progressionTracking: true }; if (d.settings.progressionTracking === undefined) d.settings.progressionTracking = true; return d; } catch { return null; } }
 function saveData(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch(e) { console.error(e); } }
 function getExerciseHistory(name, logs) {
   const e = [];
@@ -339,6 +304,8 @@ function GymDump() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [shareImport, setShareImport] = useState(null);
   const [shareAction, setShareAction] = useState(null);
+  const [quickTip, setQuickTip] = useState(false);
+  const [howTo, setHowTo] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const timerRef = useRef(null);
@@ -376,6 +343,14 @@ function GymDump() {
         }
       }
     } catch {}
+    // Restore saved quick sessions from main data into sessionStatesRef
+    if (e && e.savedQuickSessions) {
+      e.savedQuickSessions.forEach(sq => {
+        if (!sessionStatesRef.current[sq.id]) {
+          sessionStatesRef.current[sq.id] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: sq.exercises, continuingLogId: null, quickSessionName: sq.name, shared: sq.shared || false };
+        }
+      });
+    }
     setLoading(false);
   }, []);
 
@@ -397,7 +372,7 @@ function GymDump() {
   const save = useCallback(nd => { setData(nd); saveData(nd); }, []);
   const resetToDefaults = () => { save(INITIAL_DATA); setConfirmReset(false); try { localStorage.removeItem(SESSION_STATE_KEY); } catch {} sessionStatesRef.current = {}; setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({}); setActiveSessionId(null); setActiveWeekId(null); setView("home"); };
   const exportData = (d) => { const toExport = d || data; const b = new Blob([JSON.stringify(toExport, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "gymdump-backup.json"; a.click(); URL.revokeObjectURL(u); };
-  const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.program && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; save(d); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
+  const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.program && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; if (!d.savedQuickSessions) d.savedQuickSessions = []; save(d); d.savedQuickSessions.forEach(sq => { sessionStatesRef.current[sq.id] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: sq.exercises, continuingLogId: null, quickSessionName: sq.name, shared: sq.shared || false }; }); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
   const getSession = (wId, sId) => { const w = data.program.weeks.find(w => w.id === wId); return w?.sessions.find(s => s.id === sId); };
 
   const shareSession = (sessName, exercises) => {
@@ -419,7 +394,10 @@ function GymDump() {
     const tempId = "quick-" + uid();
     const exs = imported.exercises.map(e => ({ ...e, id: uid() }));
     sessionStatesRef.current[tempId] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: exs, continuingLogId: null, quickSessionName: imported.name, shared: true };
-    // Persist to localStorage
+    // Persist to main data for backup/restore
+    const sq = [...(data.savedQuickSessions || []), { id: tempId, name: imported.name, exercises: exs, shared: true }];
+    save({ ...data, savedQuickSessions: sq });
+    // Also persist to session state
     const hasActive = activeSessionId && Object.values(workoutLog).some(v => v.sets?.length > 0);
     const state = { activeSessionId: hasActive ? activeSessionId : null, activeWeekId: hasActive ? activeWeekId : null, workoutLog: hasActive ? workoutLog : {}, skippedExercises: hasActive ? skippedExercises : {}, doneExercises: hasActive ? doneExercises : {}, tempExercises: hasActive ? tempExercises : null, continuingLogId: hasActive ? continuingLogId : null, quickSessionName: hasActive ? quickSessionName : "", otherSessions: sessionStatesRef.current };
     try { localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(state)); } catch {}
@@ -439,13 +417,24 @@ function GymDump() {
     })));
     return result;
   };
+  const removeQuickSession = (qsId, isCurrent) => {
+    if (isCurrent) { setActiveSessionId(null); setActiveWeekId(null); setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({}); setTempExercises(null); setQuickSessionName(""); }
+    delete sessionStatesRef.current[qsId];
+    const sq = (data.savedQuickSessions || []).filter(s => s.id !== qsId);
+    save({ ...data, savedQuickSessions: sq });
+    const st = { activeSessionId: isCurrent ? null : activeSessionId, activeWeekId: isCurrent ? null : activeWeekId, workoutLog: isCurrent ? {} : workoutLog, skippedExercises: isCurrent ? {} : skippedExercises, doneExercises: isCurrent ? {} : doneExercises, tempExercises: isCurrent ? null : tempExercises, continuingLogId: isCurrent ? null : continuingLogId, quickSessionName: isCurrent ? "" : quickSessionName, otherSessions: sessionStatesRef.current };
+    try { localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(st)); } catch {}
+  };
 
   const saveQuickSession = () => {
     if (quickSessionExercises.length === 0) return;
     const tempId = "quick-" + uid();
     const exs = quickSessionExercises.map(e => ({ ...e, id: uid() }));
     sessionStatesRef.current[tempId] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: exs, continuingLogId: null, quickSessionName: quickSessionName || "Quick Session" };
-    // Persist
+    // Persist to main data for backup/restore
+    const sq = [...(data.savedQuickSessions || []), { id: tempId, name: quickSessionName || "Quick Session", exercises: exs }];
+    save({ ...data, savedQuickSessions: sq });
+    // Also persist to session state
     const hasActive = activeSessionId && Object.values(workoutLog).some(v => v.sets?.length > 0);
     const state = { activeSessionId: hasActive ? activeSessionId : null, activeWeekId: hasActive ? activeWeekId : null, workoutLog: hasActive ? workoutLog : {}, skippedExercises: hasActive ? skippedExercises : {}, doneExercises: hasActive ? doneExercises : {}, tempExercises: hasActive ? tempExercises : null, continuingLogId: hasActive ? continuingLogId : null, quickSessionName: hasActive ? quickSessionName : "", otherSessions: sessionStatesRef.current };
     try { localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(state)); } catch {}
@@ -502,7 +491,7 @@ function GymDump() {
     const monthSessions = monthLogs.length;
     const monthComp = getVolumeComparison(monthVol, now.getFullYear() * 12 + now.getMonth());
     return (<div>
-      <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => exportData()}>Backup</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit Program</Btn></div>} />
+      <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => setHowTo(true)}>?</Btn><Btn variant="ghost" onClick={() => exportData()}>Backup</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit Program</Btn></div>} />
       {(ts > 0 || streak > 0) && (<div className="bg-neutral-900 rounded-2xl p-3 mb-5">
         <div className="flex items-center justify-between">
           <span className="text-neutral-400 text-sm">{ts} session{ts !== 1 ? "s" : ""} logged</span>
@@ -524,6 +513,14 @@ function GymDump() {
         </div>)}
       </div>)}
 
+      {data.program.weeks.length === 0 ? (
+        <div className="text-center py-10 mb-4">
+          <p className="text-4xl mb-3">🏋️</p>
+          <p className="text-white font-semibold text-lg mb-1">No program yet</p>
+          <p className="text-neutral-500 text-sm mb-5">Create a workout program to get started, or jump in with a quick session below.</p>
+          <Btn variant="primary" onClick={() => setView("program")} className="px-8 py-3 text-base">Create Program</Btn>
+        </div>
+      ) : (<>
       {data.program.weeks.map(week => (<div key={week.id} className="mb-5">
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">{week.name}</p>
         <div className="flex gap-2">{week.sessions.map(sess => {
@@ -553,9 +550,10 @@ function GymDump() {
           </Card>);
         })}</div>
       </div>))}
+      </>)}
 
       <div className="flex gap-2 mb-3">
-        <button onClick={() => { setQuickSessionName(""); setQuickSessionExercises([]); setQuickAddTab("my"); setView("quickSetup"); }}
+        <button onClick={() => { setQuickSessionName(""); setQuickSessionExercises([]); setQuickAddTab("my"); if (!localStorage.getItem("gd-quick-tip")) { setQuickTip(true); localStorage.setItem("gd-quick-tip", "1"); } else { setView("quickSetup"); } }}
           className="flex-1 py-3 text-neutral-400 text-sm text-center active:text-white border border-dashed border-neutral-700 rounded-xl">+ Quick Session</button>
         <button onClick={async () => {
           try {
@@ -592,6 +590,12 @@ function GymDump() {
             quickSessions.push({ id: sid, name: ss.quickSessionName || "Quick Session", isCurrent: false, state: ss, hasLog, exercises: ss.tempExercises, shared: ss.shared || false });
           }
         });
+        // Also include savedQuickSessions from data that aren't already in sessionStatesRef
+        (data.savedQuickSessions || []).forEach(sq => {
+          if (!quickSessions.find(q => q.id === sq.id)) {
+            quickSessions.push({ id: sq.id, name: sq.name, isCurrent: false, hasLog: false, exercises: sq.exercises, shared: sq.shared || false, fromData: true });
+          }
+        });
         if (quickSessions.length === 0) return null;
         return quickSessions.map(qs => (
           <div key={qs.id} className="mb-3 rounded-2xl p-4 cursor-pointer active:opacity-80"
@@ -601,6 +605,11 @@ function GymDump() {
             onContextMenu={e => e.preventDefault()}
             onClick={lpClick(() => {
               if (qs.isCurrent) { setView("workout"); }
+              else if (qs.fromData) {
+                // Load from savedQuickSessions into sessionStatesRef then resume
+                sessionStatesRef.current[qs.id] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: qs.exercises, continuingLogId: null, quickSessionName: qs.name, shared: qs.shared };
+                resumeSession(qs.id);
+              }
               else { resumeSession(qs.id); }
             })}>
             <div className="flex items-center justify-between">
@@ -609,7 +618,7 @@ function GymDump() {
                 <p className={(qs.shared ? "text-indigo-500/60" : "text-amber-500/60") + " text-xs mt-0.5"}>{qs.shared ? "Shared Session" : "Quick Session"} · {qs.hasLog ? "In Progress" : "Saved"}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button className="text-neutral-600 text-sm px-1 py-1 active:text-red-400" onClick={e => { e.stopPropagation(); if (qs.isCurrent) { setActiveSessionId(null); setActiveWeekId(null); setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({}); setTempExercises(null); setQuickSessionName(""); } delete sessionStatesRef.current[qs.id]; const st = { activeSessionId: qs.isCurrent ? null : activeSessionId, activeWeekId: qs.isCurrent ? null : activeWeekId, workoutLog: qs.isCurrent ? {} : workoutLog, skippedExercises: qs.isCurrent ? {} : skippedExercises, doneExercises: qs.isCurrent ? {} : doneExercises, tempExercises: qs.isCurrent ? null : tempExercises, continuingLogId: qs.isCurrent ? null : continuingLogId, quickSessionName: qs.isCurrent ? "" : quickSessionName, otherSessions: sessionStatesRef.current }; try { localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(st)); } catch {} setView("home"); }}>✕</button>
+                <button className="text-neutral-600 text-sm px-1 py-1 active:text-red-400" onClick={e => { e.stopPropagation(); removeQuickSession(qs.id, qs.isCurrent); }}>✕</button>
                 <span className={(qs.shared ? "text-indigo-500" : "text-amber-500") + " text-lg"}>›</span>
               </div>
             </div>
@@ -684,7 +693,7 @@ function GymDump() {
         </div>
       </Modal>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v6.8</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v7.0</p>
     </div>);
   };
 
@@ -730,9 +739,10 @@ function GymDump() {
       }).filter(Boolean);
       const nc = isQuickSession ? data.completedSessions : { ...data.completedSessions, [activeSessionId]: today() };
       const baseLogs = continuingLogId ? data.logs.filter(l => l.id !== continuingLogId) : data.logs;
+      const sq = (data.savedQuickSessions || []).filter(s => s.id !== activeSessionId);
       let newData;
-      if (exList.length === 0) { newData = { ...data, logs: baseLogs, completedSessions: nc }; }
-      else { newData = { ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: sessName, exercises: exList }], completedSessions: nc }; }
+      if (exList.length === 0) { newData = { ...data, logs: baseLogs, completedSessions: nc, savedQuickSessions: sq }; }
+      else { newData = { ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: sessName, exercises: exList }], completedSessions: nc, savedQuickSessions: sq }; }
       save(newData);
       setContinuingLogId(null);
       delete sessionStatesRef.current[activeSessionId];
@@ -1282,6 +1292,89 @@ function GymDump() {
     {view === "history" && <HistoryView />}
     {view === "exerciseHistory" && <ExerciseHistoryView />}
     {view === "logDetail" && <LogDetailView />}
+
+    {/* Quick Session Tip */}
+    {/* How to Use */}
+    {howTo && (<Modal title="How to Use GymDump" onClose={() => setHowTo(false)}>
+      <div className="space-y-4 text-sm text-neutral-300 max-h-[70vh] overflow-y-auto pr-1">
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3">
+          <p className="text-emerald-400 font-semibold text-xs uppercase tracking-widest mb-1">Install the App</p>
+          <p className="text-xs">For the best experience, add GymDump to your home screen: <span className="text-white font-medium">Safari → Share (↑) → Add to Home Screen</span>. It runs like a native app and works offline.</p>
+        </div>
+        <div>
+          <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Getting Started</p>
+          <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
+            <p>Tap <span className="text-emerald-400 font-medium">Edit Program</span> to build your workout program. Add weeks, sessions (e.g. "Upper 1", "Lower"), and exercises.</p>
+            <p>Use <span className="text-emerald-400 font-medium">Pre-Set Sessions</span> for quick templates (Upper/Lower, Push/Pull/Legs, Full Body, Bro Split).</p>
+            <p>Or skip the program — tap <span className="text-amber-400 font-medium">+ Quick Session</span> for a one-off workout.</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Logging Workouts</p>
+          <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
+            <p>Tap a session card to start. Tap each exercise to log sets (weight × reps).</p>
+            <p>Use <span className="text-neutral-200 font-medium">quick-fill pills</span> to prefill weight from last session or target. Tap <span className="text-neutral-200 font-medium">BW</span> for bodyweight exercises.</p>
+            <p>Swipe an exercise left to <span className="text-amber-400 font-medium">skip</span> it. Mark how it felt: Weak / Normal / Strong.</p>
+            <p>Tap <span className="text-emerald-400 font-medium">Complete Session</span> when done — your log saves to history.</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Session Colors</p>
+          <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
+            <p><span className="text-emerald-400">●</span> Green = completed today &nbsp; <span className="text-amber-400">●</span> Yellow = in progress &nbsp; <span className="text-red-400">●</span> Red = skipped</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Progression Tracking</p>
+          <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
+            <p>Each exercise can nudge you to increase weight after hitting your target for N sessions. Toggle on/off per exercise in Settings (while logging).</p>
+            <p>The progression <span className="text-emerald-400 font-medium">chart</span> always shows regardless.</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Quick Sessions</p>
+          <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
+            <p>Quick sessions are <span className="text-amber-400 font-medium">temporary</span> — great for a one-off with a friend or trying something new.</p>
+            <p>Create → Save → dashed card on home screen. Tap to start. Once completed, card disappears but log stays forever.</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Sharing Sessions</p>
+          <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
+            <p><span className="text-neutral-200 font-medium">Long-press</span> any session card to share it. Your friend taps <span className="text-indigo-400 font-medium">📥 Import</span> on their home screen and pastes the code.</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Backup</p>
+          <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
+            <p>Tap <span className="text-neutral-200 font-medium">Backup</span> to export a JSON file. Restore from Edit Program → Import Backup.</p>
+            <p className="text-red-400/80">⚠ Clearing Safari data or deleting the app wipes everything. Back up regularly!</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Tips</p>
+          <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
+            <p>Rest timer persists across exercises. Auto-stops at 30 min.</p>
+            <p>Editing a workout name/settings updates it everywhere.</p>
+          </div>
+        </div>
+      </div>
+      <Btn variant="primary" onClick={() => setHowTo(false)} className="w-full mt-4">Got it</Btn>
+    </Modal>)}
+
+    {quickTip && (<Modal title="Quick Sessions" onClose={() => { setQuickTip(false); setView("quickSetup"); }}>
+      <div className="space-y-3 text-sm text-neutral-300">
+        <p>Quick sessions are <span className="text-amber-400 font-medium">temporary workouts</span> — perfect for one-off sessions with a friend or trying something new.</p>
+        <div className="bg-neutral-800 rounded-xl p-3 space-y-2 text-xs">
+          <p><span className="text-white font-medium">1.</span> Name it and pick your exercises</p>
+          <p><span className="text-white font-medium">2.</span> Tap <span className="text-emerald-400 font-medium">Save Session</span> — it appears on your home screen</p>
+          <p><span className="text-white font-medium">3.</span> Tap the card to start whenever you're ready</p>
+          <p><span className="text-white font-medium">4.</span> Once completed, the card disappears — your log stays in history</p>
+        </div>
+        <p className="text-neutral-500 text-xs">Long-press any session card to share it with a friend.</p>
+      </div>
+      <Btn variant="primary" onClick={() => { setQuickTip(false); setView("quickSetup"); }} className="w-full mt-4">Got it</Btn>
+    </Modal>)}
 
     {/* Share Action Modal (from long-press) */}
     {shareAction && (<Modal title={shareAction.name} onClose={() => setShareAction(null)}>
