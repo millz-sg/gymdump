@@ -24,9 +24,10 @@
   input[type="number"] { -moz-appearance: textfield; }
   * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
   body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  .gd-session-progress { background: #2a2000 !important; border-left: 4px solid #d97706 !important; }
   .gd-done { background: #0c3a2a !important; border-left: 4px solid #34d399 !important; }
   .gd-progress { background: #2a2000 !important; border-left: 4px solid #d97706 !important; }
-  .gd-session-progress { background: #2a2000 !important; border-left: 4px solid #d97706 !important; }
+  @keyframes slideUp { from { transform: translateY(100px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   .gd-badge { background: rgba(16,185,129,0.25); color: #34d399; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-family: ui-monospace, monospace; }
   .swipe-container { position: relative; overflow: hidden; margin-bottom: 0.75rem; }
   .swipe-bg { position: absolute; right: 0; top: 4px; bottom: 4px; width: 76px; display: flex; align-items: center; justify-content: center; background: #92400e; border-radius: 0.75rem; }
@@ -125,8 +126,9 @@ const FeelingPicker = ({ value, onChange }) => {
 };
 const Notes = ({ text }) => text ? <p className="text-neutral-600 text-xs mt-0.5 italic">{text}</p> : null;
 const TargetBadge = ({ ex }) => {
-  if (!ex.targetWeight || ex.targetWeight === 0) return null;
-  return (<div className="flex items-center gap-1.5 mt-1"><span className="text-emerald-500 text-xs font-semibold">TARGET</span><span className="text-emerald-400 text-sm font-mono font-medium">{ex.targetWeight}lbs x {ex.defaultSets}x{ex.defaultReps}</span></div>);
+  if (!ex.targetWeight && ex.targetWeight !== "BW") return null;
+  if (ex.targetWeight === 0) return null;
+  return (<div className="flex items-center gap-1.5 mt-1"><span className="text-emerald-500 text-xs font-semibold">TARGET</span><span className="text-emerald-400 text-sm font-mono font-medium">{ex.targetWeight === "BW" ? "Bodyweight" : ex.targetWeight + "lbs"} x {ex.defaultSets}x{ex.defaultReps}</span></div>);
 };
 const LastPerf = ({ last }) => {
   if (!last) return null;
@@ -291,11 +293,11 @@ function GymDump() {
   const [tempExercises, setTempExercises] = useState(null);
   const [showAddWorkout, setShowAddWorkout] = useState(false);
   const [showEditInfo, setShowEditInfo] = useState(false);
-  const [sessionModal, setSessionModal] = useState(null);
   const [continuingLogId, setContinuingLogId] = useState(null);
   const [quickSessionName, setQuickSessionName] = useState("");
   const [quickSessionExercises, setQuickSessionExercises] = useState([]);
   const [quickAddTab, setQuickAddTab] = useState("my");
+  const [historyTab, setHistoryTab] = useState("sessions");
   const sessionStatesRef = useRef({});
   const weightRef = useRef(null);
   const repsRef = useRef(null);
@@ -306,6 +308,8 @@ function GymDump() {
   const [shareAction, setShareAction] = useState(null);
   const [quickTip, setQuickTip] = useState(false);
   const [howTo, setHowTo] = useState(false);
+  const [undoToast, setUndoToast] = useState(null);
+  const undoTimerRef = useRef(null);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const timerRef = useRef(null);
@@ -491,7 +495,7 @@ function GymDump() {
     const monthSessions = monthLogs.length;
     const monthComp = getVolumeComparison(monthVol, now.getFullYear() * 12 + now.getMonth());
     return (<div>
-      <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => setHowTo(true)}>?</Btn><Btn variant="ghost" onClick={() => exportData()}>Backup</Btn><Btn variant="ghost" onClick={() => setView("program")}>Edit Program</Btn></div>} />
+      <Header title="GymDump" right={<div className="flex gap-2"><Btn variant="ghost" onClick={() => setHowTo(true)}>?</Btn><Btn variant="ghost" onClick={() => exportData()}>Backup</Btn><Btn variant="ghost" onClick={() => setView("program")}>My Program</Btn></div>} />
       {(ts > 0 || streak > 0) && (<div className="bg-neutral-900 rounded-2xl p-3 mb-5">
         <div className="flex items-center justify-between">
           <span className="text-neutral-400 text-sm">{ts} session{ts !== 1 ? "s" : ""} logged</span>
@@ -525,28 +529,25 @@ function GymDump() {
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">{week.name}</p>
         <div className="flex gap-2">{week.sessions.map(sess => {
           const ec = sess.exercises.length;
-          const ic = !!data.completedSessions[sess.id];
           const ll = [...data.logs].reverse().find(l => l.sessionId === sess.id);
           const isCurrentActive = activeSessionId === sess.id && Object.values(workoutLog).some(v => v.sets?.length > 0);
           const isInRef = !!sessionStatesRef.current[sess.id];
           const isInProg = isCurrentActive || isInRef;
-          const cardClass = ic ? "gd-done" : isInProg ? "gd-session-progress" : "";
+          const cardClass = isInProg ? "gd-session-progress" : "";
           return (<Card key={sess.id} className={"flex-1 text-center " + cardClass}
             onTouchStart={() => ec > 0 && lpStart(sess.name, sess.exercises)}
             onTouchEnd={lpEnd} onTouchMove={lpEnd}
             onContextMenu={e => e.preventDefault()}
             onClick={lpClick(() => {
               if (ec === 0) { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); return; }
-              if (ic) { setSessionModal({ weekId: week.id, sessId: sess.id, sessName: sess.name }); return; }
               if (isCurrentActive) { setView("workout"); return; }
               if (isInRef) { resumeSession(sess.id); return; }
               startSession(week.id, sess.id);
             })}>
-            <p className={"font-semibold text-sm " + (ic ? "text-emerald-400" : isInProg ? "text-amber-400" : "text-white")}>{sess.name}</p>
-            {ic ? <p className="text-emerald-500/60 text-xs mt-0.5">✓ Completed</p>
-              : isInProg ? <p className="text-amber-500/60 text-xs mt-0.5">In Progress</p>
+            <p className={"font-semibold text-sm " + (isInProg ? "text-amber-400" : "text-white")}>{sess.name}</p>
+            {isInProg ? <p className="text-amber-500/60 text-xs mt-0.5">In Progress</p>
               : <p className="text-neutral-500 text-xs mt-0.5">{ec} workouts</p>}
-            {ll && <p className="text-neutral-600 text-xs mt-1">{formatDate(ll.date)}</p>}
+            {ll && <p className="text-neutral-600 text-xs mt-1">Last: {formatDate(ll.date)}</p>}
           </Card>);
         })}</div>
       </div>))}
@@ -642,70 +643,58 @@ function GymDump() {
         })}
       </div>)}
 
-      {/* Session completion modal */}
-      {sessionModal && (<Modal title={sessionModal.sessName} onClose={() => setSessionModal(null)}>
-        <p className="text-neutral-400 text-sm mb-4">This session is marked as done.</p>
-        <div className="space-y-2">
-          <Btn variant="primary" onClick={() => {
-            const ll = [...data.logs].reverse().find(l => l.sessionId === sessionModal.sessId);
-            if (ll) {
-              const sess = getSession(sessionModal.weekId, sessionModal.sessId);
-              if (sess) {
-                saveCurrentSessionState();
-                const restoredLog = {};
-                sess.exercises.forEach(ex => {
-                  const loggedEx = ll.exercises.find(e => e.name === ex.name && !e.skipped);
-                  if (loggedEx) { restoredLog[ex.id] = { sets: loggedEx.sets, feeling: loggedEx.feeling || "normal" }; }
-                });
-                const restoredSkips = {};
-                const restoredDone = {};
-                sess.exercises.forEach(ex => {
-                  if (ll.exercises.find(e => e.name === ex.name && e.skipped)) restoredSkips[ex.id] = true;
-                  if (ll.exercises.find(e => e.name === ex.name && !e.skipped)) restoredDone[ex.id] = true;
-                });
-                const nc = { ...data.completedSessions }; delete nc[sessionModal.sessId];
-                save({ ...data, completedSessions: nc });
-                setContinuingLogId(ll.id);
-                setActiveWeekId(sessionModal.weekId);
-                setActiveSessionId(sessionModal.sessId);
-                setWorkoutLog(restoredLog);
-                setSkippedExercises(restoredSkips);
-                setDoneExercises(restoredDone);
-                setTempExercises(null);
-                setShowAddWorkout(false);
-                setView("workout");
-              }
-            }
-            setSessionModal(null);
-          }} className="w-full">Continue Session</Btn>
-          <Btn variant="secondary" onClick={() => {
-            saveCurrentSessionState();
-            const nc = { ...data.completedSessions }; delete nc[sessionModal.sessId];
-            save({ ...data, completedSessions: nc });
-            startSession(sessionModal.weekId, sessionModal.sessId);
-            setSessionModal(null);
-          }} className="w-full">Start Fresh</Btn>
-          <Btn variant="ghost" onClick={() => {
-            const nc = { ...data.completedSessions }; delete nc[sessionModal.sessId];
-            save({ ...data, completedSessions: nc });
-            setSessionModal(null);
-          }} className="w-full text-neutral-500">Undo Completion</Btn>
-        </div>
-      </Modal>)}
+      {/* Undo Toast */}
+      {undoToast && (<div className="fixed bottom-6 left-4 right-4 z-50 bg-neutral-800 border border-neutral-700 rounded-2xl p-4 flex items-center justify-between shadow-xl" style={{animation:"slideUp 0.3s ease-out"}}>
+        <p className="text-white text-sm font-medium">✓ {undoToast.sessName} completed</p>
+        <button onClick={() => {
+          clearTimeout(undoTimerRef.current);
+          // Remove the log
+          if (undoToast.logId) { const logs = data.logs.filter(l => l.id !== undoToast.logId); save({ ...data, logs }); }
+          // Restore session state
+          setActiveSessionId(undoToast.sessionId); setActiveWeekId(undoToast.weekId);
+          setWorkoutLog(undoToast.workoutLog); setSkippedExercises(undoToast.skippedExercises);
+          setDoneExercises(undoToast.doneExercises); setTempExercises(undoToast.tempExercises);
+          setContinuingLogId(undoToast.continuingLogId); setQuickSessionName(undoToast.quickSessionName);
+          setUndoToast(null); setView("workout");
+        }} className="text-emerald-400 text-sm font-semibold px-3 py-1 active:text-emerald-300 ml-3 flex-shrink-0">Undo</button>
+      </div>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v7.0</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v7.1</p>
     </div>);
   };
 
   // ── HISTORY + EXERCISE HISTORY ──
   const HistoryView = () => {
+    const allLogs = [...data.logs].sort((a, b) => new Date(b.date) - new Date(a.date));
     const an = new Set(); data.program.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => an.add(e.name)))); data.logs.forEach(l => l.exercises.forEach(e => { if (!e.skipped) an.add(e.name); }));
-    return (<div><Header title="Exercise History" onBack={() => setView("home")} />{[...an].sort().map(name => {
-      const h = getExerciseHistory(name, data.logs); const l = h[0];
-      return (<Card key={name} className="mb-2" onClick={() => { setActiveExName(name); setView("exerciseHistory"); }}>
-        <div className="flex items-center justify-between"><div className="flex-1 min-w-0"><p className="text-white font-medium truncate">{name}</p>{l ? <p className="text-neutral-500 text-xs font-mono mt-0.5">Last: {l.sets.map(s => fmtW(s.weight)+"x"+s.reps).join(", ")} - {formatDate(l.date)}</p> : <p className="text-neutral-600 text-xs mt-0.5">No logs yet</p>}</div><span className="text-neutral-600 flex-shrink-0 ml-2">›</span></div>
-      </Card>);
-    })}</div>);
+    return (<div><Header title="History" onBack={() => setView("home")} />
+      <div className="flex gap-1 mb-4 bg-neutral-900 rounded-xl p-1">
+        <button onClick={() => setHistoryTab("sessions")} className={"flex-1 py-2 rounded-lg text-xs font-medium transition-all " + (historyTab === "sessions" ? "bg-emerald-600 text-white" : "text-neutral-500")}> By Session</button>
+        <button onClick={() => setHistoryTab("exercises")} className={"flex-1 py-2 rounded-lg text-xs font-medium transition-all " + (historyTab === "exercises" ? "bg-emerald-600 text-white" : "text-neutral-500")}>By Exercise</button>
+      </div>
+      {historyTab === "sessions" ? (
+        allLogs.length === 0 ? <Card className="text-center"><p className="text-neutral-500 text-sm">No sessions logged yet</p></Card>
+        : allLogs.map((log, i) => {
+          const en = log.exercises.slice(0, 3).map(e => e.skipped ? e.name + " (skip)" : e.name).join(", ");
+          const more = log.exercises.length > 3 ? " +" + (log.exercises.length - 3) + " more" : "";
+          return (<div key={i} className="py-3 border-b border-neutral-800/60 cursor-pointer active:bg-neutral-900"
+            onClick={() => { setActiveLogId(log.id); setView("logDetail"); }}>
+            <div className="flex items-center justify-between">
+              <span className="text-white text-sm font-medium">{log.sessionName}</span>
+              <span className="text-neutral-500 text-xs">{formatDate(log.date)}</span>
+            </div>
+            <p className="text-neutral-500 text-xs mt-0.5 truncate">{en}{more}</p>
+          </div>);
+        })
+      ) : (
+        [...an].sort().map(name => {
+          const h = getExerciseHistory(name, data.logs); const l = h[0];
+          return (<Card key={name} className="mb-2" onClick={() => { setActiveExName(name); setView("exerciseHistory"); }}>
+            <div className="flex items-center justify-between"><div className="flex-1 min-w-0"><p className="text-white font-medium truncate">{name}</p>{l ? <p className="text-neutral-500 text-xs font-mono mt-0.5">Last: {l.sets.map(s => fmtW(s.weight)+"x"+s.reps).join(", ")} - {formatDate(l.date)}</p> : <p className="text-neutral-600 text-xs mt-0.5">No logs yet</p>}</div><span className="text-neutral-600 flex-shrink-0 ml-2">›</span></div>
+          </Card>);
+        })
+      )}
+    </div>);
   };
   const ExerciseHistoryView = () => {
     const h = getExerciseHistory(activeExName, data.logs);
@@ -737,29 +726,30 @@ function GymDump() {
         if (workoutLog[ex.id]?.sets?.length > 0) return { name: ex.name, sets: workoutLog[ex.id].sets, feeling: workoutLog[ex.id].feeling || "normal" };
         return null;
       }).filter(Boolean);
-      const nc = isQuickSession ? data.completedSessions : { ...data.completedSessions, [activeSessionId]: today() };
       const baseLogs = continuingLogId ? data.logs.filter(l => l.id !== continuingLogId) : data.logs;
       const sq = (data.savedQuickSessions || []).filter(s => s.id !== activeSessionId);
+      const logId = uid();
       let newData;
-      if (exList.length === 0) { newData = { ...data, logs: baseLogs, completedSessions: nc, savedQuickSessions: sq }; }
-      else { newData = { ...data, logs: [...baseLogs, { id: uid(), date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: sessName, exercises: exList }], completedSessions: nc, savedQuickSessions: sq }; }
+      if (exList.length === 0) { newData = { ...data, logs: baseLogs, savedQuickSessions: sq }; }
+      else { newData = { ...data, logs: [...baseLogs, { id: logId, date: today(), weekId: activeWeekId, sessionId: activeSessionId, sessionName: sessName, exercises: exList }], savedQuickSessions: sq }; }
+      // Save undo state before clearing
+      const undoState = { logId: exList.length > 0 ? logId : null, sessionId: activeSessionId, weekId: activeWeekId, workoutLog: { ...workoutLog }, skippedExercises: { ...skippedExercises }, doneExercises: { ...doneExercises }, tempExercises, continuingLogId, quickSessionName, sessName };
       save(newData);
       setContinuingLogId(null);
       delete sessionStatesRef.current[activeSessionId];
       setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({});
       setActiveSessionId(null); setActiveWeekId(null); setTempExercises(null);
       setView("home");
+      // Show undo toast
+      clearTimeout(undoTimerRef.current);
+      setUndoToast(undoState);
+      undoTimerRef.current = setTimeout(() => setUndoToast(null), 5000);
     };
+
     const addTempWorkout = () => { const nm = newWorkoutRef.current?.value; if (!nm || !nm.trim()) return; setTempExercises([...(tempExercises || session?.exercises || []), mkEx(nm.trim(), 3, 10, 0, 5, 2, "")]); if (newWorkoutRef.current) newWorkoutRef.current.value = ""; setShowAddWorkout(false); };
 
     const goBack = () => {
-      if (continuingLogId) {
-        save({ ...data, completedSessions: { ...data.completedSessions, [activeSessionId]: today() } });
-        setContinuingLogId(null);
-        delete sessionStatesRef.current[activeSessionId];
-      } else {
-        saveCurrentSessionState();
-      }
+      saveCurrentSessionState();
       setView("home");
     };
 
@@ -1304,7 +1294,7 @@ function GymDump() {
         <div>
           <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Getting Started</p>
           <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
-            <p>Tap <span className="text-emerald-400 font-medium">Edit Program</span> to build your workout program. Add weeks, sessions (e.g. "Upper 1", "Lower"), and exercises.</p>
+            <p>Tap <span className="text-emerald-400 font-medium">My Program</span> to build your workout program. Add weeks, sessions (e.g. "Upper 1", "Lower"), and exercises.</p>
             <p>Use <span className="text-emerald-400 font-medium">Pre-Set Sessions</span> for quick templates (Upper/Lower, Push/Pull/Legs, Full Body, Bro Split).</p>
             <p>Or skip the program — tap <span className="text-amber-400 font-medium">+ Quick Session</span> for a one-off workout.</p>
           </div>
@@ -1347,7 +1337,7 @@ function GymDump() {
         <div>
           <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Backup</p>
           <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
-            <p>Tap <span className="text-neutral-200 font-medium">Backup</span> to export a JSON file. Restore from Edit Program → Import Backup.</p>
+            <p>Tap <span className="text-neutral-200 font-medium">Backup</span> to export a JSON file. Restore from My Program → Import Backup.</p>
             <p className="text-red-400/80">⚠ Clearing Safari data or deleting the app wipes everything. Back up regularly!</p>
           </div>
         </div>
