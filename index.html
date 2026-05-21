@@ -391,8 +391,8 @@ function GymDump() {
   const resetToDefaults = () => { save(INITIAL_DATA); setConfirmReset(false); try { localStorage.removeItem(SESSION_STATE_KEY); } catch {} sessionStatesRef.current = {}; setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({}); setActiveSessionId(null); setActiveWeekId(null); setView("home"); };
   const exportData = (d) => { const toExport = d || data; const b = new Blob([JSON.stringify(toExport, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "gymdump-backup.json"; a.click(); URL.revokeObjectURL(u); };
   const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if ((d.program || d.programs) && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; if (!d.savedQuickSessions) d.savedQuickSessions = []; if (d.program && !d.programs) { d.programs = [{ id: "p1", name: "My Program", weeks: d.program.weeks || [] }]; d.activeProgramId = "p1"; delete d.program; } if (!d.programs) d.programs = [{ id: "p1", name: "My Program", weeks: [] }]; if (!d.activeProgramId) d.activeProgramId = d.programs[0]?.id || "p1"; save(d); (d.savedQuickSessions || []).forEach(sq => { sessionStatesRef.current[sq.id] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: sq.exercises, continuingLogId: null, quickSessionName: sq.name, shared: sq.shared || false }; }); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
-  const prog = data.programs.find(p => p.id === data.activeProgramId) || data.programs[0] || { id: "p1", name: "My Program", weeks: [] };
-  const saveProg = (weeks) => { const programs = data.programs.map(p => p.id === prog.id ? { ...p, weeks } : p); save({ ...data, programs }); };
+  const prog = data ? (data.programs.find(p => p.id === data.activeProgramId) || data.programs[0] || { id: "p1", name: "My Program", weeks: [] }) : { id: "p1", name: "My Program", weeks: [] };
+  const saveProg = (weeks) => { if (!data) return; const programs = data.programs.map(p => p.id === prog.id ? { ...p, weeks } : p); save({ ...data, programs }); };
   const getSession = (wId, sId) => { const w = prog.weeks.find(w => w.id === wId); return w?.sessions.find(s => s.id === sId); };
 
   const shareSession = (sessName, exercises) => {
@@ -1062,10 +1062,10 @@ function GymDump() {
         {showPrograms && (<div className="mt-2 bg-neutral-900 rounded-xl overflow-hidden">
           {data.programs.map(p => (
             <div key={p.id} className={"flex items-center justify-between px-3 py-3 border-b border-neutral-800 last:border-0 " + (p.id === prog.id ? "bg-emerald-500/10" : "")}>
-              <button onClick={() => switchProgram(p.id)} className="flex-1 text-left min-w-0">
-                <p className={"text-sm font-medium truncate " + (p.id === prog.id ? "text-emerald-400" : "text-white")}>{p.name}</p>
+              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => switchProgram(p.id)}>
+                <input defaultValue={p.name} key={p.id + "-pname"} onClick={e => e.stopPropagation()} onBlur={e => { const val = e.target.value.trim(); if (val && val !== p.name) renameProgram(p.id, val); }} className={"text-sm font-medium bg-transparent outline-none w-full truncate " + (p.id === prog.id ? "text-emerald-400 focus:text-emerald-300" : "text-white focus:text-neutral-200")} />
                 <p className="text-neutral-500 text-xs">{p.weeks.length} week{p.weeks.length !== 1 ? "s" : ""} · {p.weeks.reduce((a, w) => a + w.sessions.length, 0)} sessions</p>
-              </button>
+              </div>
               <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                 <button onClick={() => duplicateProgram(p)} className="text-neutral-600 text-xs px-2 py-1 active:text-white">Copy</button>
                 {data.programs.length > 1 && <button onClick={() => deleteProgram(p.id)} className="text-neutral-700 text-xs px-2 py-1 active:text-red-400">x</button>}
