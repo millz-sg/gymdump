@@ -50,9 +50,23 @@ const mkEx = (name, sets, reps, tw, inc, nudge, notes = "", progEnabled = true) 
   progressionRule: { weightIncrement: inc, targetSets: sets, targetReps: reps, sessionsBeforeNudge: nudge }
 });
 
-const INITIAL_DATA = { program: { weeks: [] }, logs: [], completedSessions: {}, savedQuickSessions: [], settings: { progressionTracking: true } };
+const INITIAL_DATA = { programs: [{ id: "p1", name: "My Program", weeks: [] }], activeProgramId: "p1", logs: [], completedSessions: {}, savedQuickSessions: [], settings: { progressionTracking: true } };
 
-function loadData() { try { const r = localStorage.getItem(STORAGE_KEY); if (!r) return null; const d = JSON.parse(r); if (!d.completedSessions) d.completedSessions = {}; if (!d.savedQuickSessions) d.savedQuickSessions = []; if (!d.settings) d.settings = { progressionTracking: true }; if (d.settings.progressionTracking === undefined) d.settings.progressionTracking = true; return d; } catch { return null; } }
+function loadData() { try { const r = localStorage.getItem(STORAGE_KEY); if (!r) return null; const d = JSON.parse(r);
+  if (!d.completedSessions) d.completedSessions = {};
+  if (!d.savedQuickSessions) d.savedQuickSessions = [];
+  if (!d.settings) d.settings = { progressionTracking: true };
+  if (d.settings.progressionTracking === undefined) d.settings.progressionTracking = true;
+  // Migrate from single program to multi-program
+  if (d.program && !d.programs) {
+    d.programs = [{ id: "p1", name: "My Program", weeks: d.program.weeks || [] }];
+    d.activeProgramId = "p1";
+    delete d.program;
+  }
+  if (!d.programs) d.programs = [{ id: "p1", name: "My Program", weeks: [] }];
+  if (!d.activeProgramId) d.activeProgramId = d.programs[0]?.id || "p1";
+  return d;
+} catch { return null; } }
 function saveData(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch(e) { console.error(e); } }
 function getExerciseHistory(name, logs) {
   const e = [];
@@ -376,8 +390,10 @@ function GymDump() {
   const save = useCallback(nd => { setData(nd); saveData(nd); }, []);
   const resetToDefaults = () => { save(INITIAL_DATA); setConfirmReset(false); try { localStorage.removeItem(SESSION_STATE_KEY); } catch {} sessionStatesRef.current = {}; setWorkoutLog({}); setSkippedExercises({}); setDoneExercises({}); setActiveSessionId(null); setActiveWeekId(null); setView("home"); };
   const exportData = (d) => { const toExport = d || data; const b = new Blob([JSON.stringify(toExport, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "gymdump-backup.json"; a.click(); URL.revokeObjectURL(u); };
-  const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.program && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; if (!d.savedQuickSessions) d.savedQuickSessions = []; save(d); d.savedQuickSessions.forEach(sq => { sessionStatesRef.current[sq.id] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: sq.exercises, continuingLogId: null, quickSessionName: sq.name, shared: sq.shared || false }; }); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
-  const getSession = (wId, sId) => { const w = data.program.weeks.find(w => w.id === wId); return w?.sessions.find(s => s.id === sId); };
+  const importData = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json"; inp.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { try { const d = JSON.parse(ev.target.result); if ((d.program || d.programs) && d.logs !== undefined) { if (!d.completedSessions) d.completedSessions = {}; if (!d.savedQuickSessions) d.savedQuickSessions = []; if (d.program && !d.programs) { d.programs = [{ id: "p1", name: "My Program", weeks: d.program.weeks || [] }]; d.activeProgramId = "p1"; delete d.program; } if (!d.programs) d.programs = [{ id: "p1", name: "My Program", weeks: [] }]; if (!d.activeProgramId) d.activeProgramId = d.programs[0]?.id || "p1"; save(d); (d.savedQuickSessions || []).forEach(sq => { sessionStatesRef.current[sq.id] = { weekId: null, workoutLog: {}, skippedExercises: {}, doneExercises: {}, tempExercises: sq.exercises, continuingLogId: null, quickSessionName: sq.name, shared: sq.shared || false }; }); alert("Data restored!"); } else alert("Invalid file."); } catch { alert("Error."); } }; r.readAsText(f); }; inp.click(); };
+  const prog = data.programs.find(p => p.id === data.activeProgramId) || data.programs[0] || { id: "p1", name: "My Program", weeks: [] };
+  const saveProg = (weeks) => { const programs = data.programs.map(p => p.id === prog.id ? { ...p, weeks } : p); save({ ...data, programs }); };
+  const getSession = (wId, sId) => { const w = prog.weeks.find(w => w.id === wId); return w?.sessions.find(s => s.id === sId); };
 
   const shareSession = (sessName, exercises) => {
     const payload = { name: sessName, exercises: exercises.map(e => ({ name: e.name, defaultSets: e.defaultSets, defaultReps: e.defaultReps, targetWeight: e.targetWeight || 0, notes: e.notes || "", progressionEnabled: e.progressionEnabled !== false, progressionRule: e.progressionRule || {} })) };
@@ -410,13 +426,13 @@ function GymDump() {
 
   const importToProgram = (imported, weekId) => {
     const newSess = { id: uid(), name: imported.name, exercises: imported.exercises.map(e => ({ ...e, id: uid() })) };
-    const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, newSess] } : w);
-    save({ ...data, program: { weeks } });
+    const weeks = prog.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, newSess] } : w);
+    saveProg(weeks);
     setShareImport(null);
   };
   const getAllProgramExercises = () => {
     const seen = {}; const result = [];
-    data.program.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => {
+    prog.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => {
       if (!seen[e.name]) { seen[e.name] = true; result.push(e); }
     })));
     return result;
@@ -517,7 +533,9 @@ function GymDump() {
         </div>)}
       </div>)}
 
-      {data.program.weeks.length === 0 ? (
+      {data.programs.length > 1 && <p className="text-xs text-neutral-600 mb-3 px-1">{prog.name}</p>}
+
+      {prog.weeks.length === 0 ? (
         <div className="text-center py-10 mb-4">
           <p className="text-4xl mb-3">🏋️</p>
           <p className="text-white font-semibold text-lg mb-1">No program yet</p>
@@ -525,7 +543,7 @@ function GymDump() {
           <Btn variant="primary" onClick={() => setView("program")} className="px-8 py-3 text-base">Create Program</Btn>
         </div>
       ) : (<>
-      {data.program.weeks.map(week => (<div key={week.id} className="mb-5">
+      {prog.weeks.map(week => (<div key={week.id} className="mb-5">
         <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">{week.name}</p>
         <div className="flex gap-2">{week.sessions.map(sess => {
           const ec = sess.exercises.length;
@@ -659,14 +677,14 @@ function GymDump() {
         }} className="text-emerald-400 text-sm font-semibold px-3 py-1 active:text-emerald-300 ml-3 flex-shrink-0">Undo</button>
       </div>)}
 
-      <p className="text-center text-neutral-800 text-xs mt-8">v7.1</p>
+      <p className="text-center text-neutral-800 text-xs mt-8">v7.2</p>
     </div>);
   };
 
   // ── HISTORY + EXERCISE HISTORY ──
   const HistoryView = () => {
     const allLogs = [...data.logs].sort((a, b) => new Date(b.date) - new Date(a.date));
-    const an = new Set(); data.program.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => an.add(e.name)))); data.logs.forEach(l => l.exercises.forEach(e => { if (!e.skipped) an.add(e.name); }));
+    const an = new Set(); prog.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => an.add(e.name)))); data.logs.forEach(l => l.exercises.forEach(e => { if (!e.skipped) an.add(e.name); }));
     return (<div><Header title="History" onBack={() => setView("home")} />
       <div className="flex gap-1 mb-4 bg-neutral-900 rounded-xl p-1">
         <button onClick={() => setHistoryTab("sessions")} className={"flex-1 py-2 rounded-lg text-xs font-medium transition-all " + (historyTab === "sessions" ? "bg-emerald-600 text-white" : "text-neutral-500")}> By Session</button>
@@ -857,8 +875,8 @@ function GymDump() {
       const newName = eiName.trim() || oldName;
       const tw = eiTarget === "BW" ? "BW" : (parseFloat(eiTarget) || 0);
       const updatedFields = { name: newName, targetWeight: tw, notes: eiNotes.trim(), defaultSets: nr.targetSets, defaultReps: nr.targetReps, progressionRule: nr };
-      const weeks = data.program.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === oldName ? { ...e, ...updatedFields } : e) })) }));
-      save({ ...data, program: { weeks } });
+      const weeks = prog.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === oldName ? { ...e, ...updatedFields } : e) })) }));
+      saveProg(weeks);
       if (tempExercises) {
         setTempExercises(tempExercises.map(e => e.name === oldName ? { ...e, ...updatedFields } : e));
       }
@@ -885,7 +903,7 @@ function GymDump() {
           <div><label className="text-neutral-500 text-xs block mb-1">Setup Notes</label><input value={eiNotes} onChange={e => setEiNotes(e.target.value)} placeholder="Machine settings..." className="w-full bg-neutral-800 text-neutral-300 rounded-xl py-2.5 px-3 text-xs outline-none focus:ring-2 focus:ring-emerald-500/50" /></div>
           <div className="flex items-center justify-between py-2">
             <div><p className="text-neutral-400 text-xs">Progression Nudges</p></div>
-            <button onClick={() => { const oldName = exDef.name; const on = exDef.progressionEnabled !== false; const weeks = data.program.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === oldName ? { ...e, progressionEnabled: !on } : e) })) })); save({ ...data, program: { weeks } }); }}
+            <button onClick={() => { const oldName = exDef.name; const on = exDef.progressionEnabled !== false; const weeks = prog.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === oldName ? { ...e, progressionEnabled: !on } : e) })) })); saveProg(weeks); }}
               className={"w-12 h-7 rounded-full transition-all flex items-center " + (exDef.progressionEnabled !== false ? "bg-emerald-600 justify-end" : "bg-neutral-700 justify-start")}>
               <div className="w-5 h-5 bg-white rounded-full mx-1 shadow" />
             </button>
@@ -984,40 +1002,48 @@ function GymDump() {
     const [showAddSession, setShowAddSession] = useState(null);
     const [addSessionMode, setAddSessionMode] = useState(null);
     const [newSessName, setNewSessName] = useState("");
+    const [showPrograms, setShowPrograms] = useState(false);
+    const [newProgName, setNewProgName] = useState("");
 
-    const addWeek = () => { save({ ...data, program: { ...data.program, weeks: [...data.program.weeks, { id: uid(), name: "Week " + (data.program.weeks.length + 1), sessions: [] }] } }); };
+    const switchProgram = (pid) => { save({ ...data, activeProgramId: pid }); setShowPrograms(false); };
+    const createProgram = () => { if (!newProgName.trim()) return; const np = { id: uid(), name: newProgName.trim(), weeks: [{ id: uid(), name: "Week 1", sessions: [] }] }; save({ ...data, programs: [...data.programs, np], activeProgramId: np.id }); setNewProgName(""); setShowPrograms(false); };
+    const duplicateProgram = (p) => { const np = { id: uid(), name: p.name + " (Copy)", weeks: JSON.parse(JSON.stringify(p.weeks)).map(w => ({ ...w, id: uid(), sessions: w.sessions.map(s => ({ ...s, id: uid(), exercises: s.exercises.map(e => ({ ...e, id: uid() })) })) })) }; save({ ...data, programs: [...data.programs, np], activeProgramId: np.id }); setShowPrograms(false); };
+    const deleteProgram = (pid) => { if (data.programs.length <= 1) return; const remaining = data.programs.filter(p => p.id !== pid); const newActive = pid === data.activeProgramId ? remaining[0].id : data.activeProgramId; save({ ...data, programs: remaining, activeProgramId: newActive }); };
+    const renameProgram = (pid, name) => { const programs = data.programs.map(p => p.id === pid ? { ...p, name } : p); save({ ...data, programs }); };
+
+    const addWeek = () => { saveProg([...prog.weeks, { id: uid(), name: "Week " + (prog.weeks.length + 1), sessions: [] }]); };
     const removeWeek = wid => {
-      if (data.program.weeks.length <= 1) return;
-      const newWeeks = data.program.weeks.filter(w => w.id !== wid).map((w, i) => {
+      if (prog.weeks.length <= 1) return;
+      const newWeeks = prog.weeks.filter(w => w.id !== wid).map((w, i) => {
         if (/^Week \d+$/.test(w.name)) return { ...w, name: "Week " + (i + 1) };
         return w;
       });
-      save({ ...data, program: { ...data.program, weeks: newWeeks } });
+      saveProg(newWeeks);
     };
     const removeSession = (weekId, sessId) => {
-      const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: w.sessions.filter(s => s.id !== sessId) } : w);
-      save({ ...data, program: { weeks } });
+      const weeks = prog.weeks.map(w => w.id === weekId ? { ...w, sessions: w.sessions.filter(s => s.id !== sessId) } : w);
+      saveProg(weeks);
     };
     const addBlankSession = (weekId) => {
       if (!newSessName.trim()) return;
       const sess = { id: uid(), name: newSessName.trim(), exercises: [] };
-      const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, sess] } : w);
-      save({ ...data, program: { weeks } });
+      const weeks = prog.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, sess] } : w);
+      saveProg(weeks);
       setNewSessName(""); setShowAddSession(null); setAddSessionMode(null);
     };
     const copySession = (weekId, sourceSess) => {
       const sess = { id: uid(), name: sourceSess.name + " (copy)", exercises: sourceSess.exercises.map(e => ({ ...e, id: uid() })) };
-      const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, sess] } : w);
-      save({ ...data, program: { weeks } });
+      const weeks = prog.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, sess] } : w);
+      saveProg(weeks);
       setShowAddSession(null); setAddSessionMode(null);
     };
     const addFromTemplate = (weekId, template) => {
       const sessions = template.sessions.map(name => ({ id: uid(), name, exercises: [] }));
-      const weeks = data.program.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, ...sessions] } : w);
-      save({ ...data, program: { weeks } });
+      const weeks = prog.weeks.map(w => w.id === weekId ? { ...w, sessions: [...w.sessions, ...sessions] } : w);
+      saveProg(weeks);
       setShowAddSession(null); setAddSessionMode(null);
     };
-    const allSessions = data.program.weeks.flatMap(w => w.sessions);
+    const allSessions = prog.weeks.flatMap(w => w.sessions);
     const templates = [
       { name: "Upper / Lower / Upper", sessions: ["Upper 1", "Lower", "Upper 2"] },
       { name: "Push / Pull / Legs", sessions: ["Push", "Pull", "Legs"] },
@@ -1025,9 +1051,35 @@ function GymDump() {
       { name: "Bro Split", sessions: ["Chest", "Back", "Shoulders", "Arms", "Legs"] },
     ];
 
-    return (<div><Header title="Program" onBack={() => setView("home")} />
-      {data.program.weeks.map((week, wi) => (<div key={week.id} className="mb-6">
-        <div className="flex items-center justify-between px-1 mb-2"><input defaultValue={week.name} key={week.id + "-name"} onBlur={e => { const val = e.target.value.trim() || week.name; if (val !== week.name) { const weeks = data.program.weeks.map(w => w.id === week.id ? { ...w, name: val } : w); save({ ...data, program: { weeks } }); } }} className="text-xs font-bold text-neutral-500 uppercase tracking-widest bg-transparent outline-none flex-1 min-w-0 focus:text-white" />{data.program.weeks.length > 1 && <button onClick={() => removeWeek(week.id)} className="text-neutral-600 text-xs active:text-red-400 flex-shrink-0 ml-2">Remove</button>}</div>
+    return (<div><Header title="My Program" onBack={() => setView("home")} />
+
+      {/* Program Selector */}
+      <div className="mb-4">
+        <button onClick={() => setShowPrograms(!showPrograms)} className="w-full flex items-center justify-between bg-neutral-900 rounded-xl p-3 active:bg-neutral-800">
+          <div><p className="text-white font-semibold text-sm">{prog.name}</p><p className="text-neutral-500 text-xs">{data.programs.length} program{data.programs.length !== 1 ? "s" : ""}</p></div>
+          <span className="text-neutral-500 text-sm">{showPrograms ? "▲" : "▼"}</span>
+        </button>
+        {showPrograms && (<div className="mt-2 bg-neutral-900 rounded-xl overflow-hidden">
+          {data.programs.map(p => (
+            <div key={p.id} className={"flex items-center justify-between px-3 py-3 border-b border-neutral-800 last:border-0 " + (p.id === prog.id ? "bg-emerald-500/10" : "")}>
+              <button onClick={() => switchProgram(p.id)} className="flex-1 text-left min-w-0">
+                <p className={"text-sm font-medium truncate " + (p.id === prog.id ? "text-emerald-400" : "text-white")}>{p.name}</p>
+                <p className="text-neutral-500 text-xs">{p.weeks.length} week{p.weeks.length !== 1 ? "s" : ""} · {p.weeks.reduce((a, w) => a + w.sessions.length, 0)} sessions</p>
+              </button>
+              <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                <button onClick={() => duplicateProgram(p)} className="text-neutral-600 text-xs px-2 py-1 active:text-white">Copy</button>
+                {data.programs.length > 1 && <button onClick={() => deleteProgram(p.id)} className="text-neutral-700 text-xs px-2 py-1 active:text-red-400">x</button>}
+              </div>
+            </div>
+          ))}
+          <div className="p-3 border-t border-neutral-800">
+            <div className="flex gap-2"><input value={newProgName} onChange={e => setNewProgName(e.target.value)} placeholder="New program name" className="flex-1 bg-neutral-800 text-white rounded-xl py-2 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /><Btn onClick={createProgram} className="text-xs px-3">+ New</Btn></div>
+          </div>
+        </div>)}
+      </div>
+
+      {prog.weeks.map((week, wi) => (<div key={week.id} className="mb-6">
+        <div className="flex items-center justify-between px-1 mb-2"><input defaultValue={week.name} key={week.id + "-name"} onBlur={e => { const val = e.target.value.trim() || week.name; if (val !== week.name) { const weeks = prog.weeks.map(w => w.id === week.id ? { ...w, name: val } : w); saveProg(weeks); } }} className="text-xs font-bold text-neutral-500 uppercase tracking-widest bg-transparent outline-none flex-1 min-w-0 focus:text-white" />{prog.weeks.length > 1 && <button onClick={() => removeWeek(week.id)} className="text-neutral-600 text-xs active:text-red-400 flex-shrink-0 ml-2">Remove</button>}</div>
         {week.sessions.map(sess => (<div key={sess.id} className="flex items-center gap-2 mb-2">
           <Card className="flex-1" onClick={() => { setEditWeekId(week.id); setEditSessionId(sess.id); setView("editSession"); }}><div className="flex items-center justify-between"><div><p className="text-white font-medium">{sess.name}</p><p className="text-neutral-500 text-xs">{sess.exercises.length} workouts</p></div><span className="text-neutral-600">›</span></div></Card>
           <button onClick={() => removeSession(week.id, sess.id)} className="text-neutral-700 text-sm px-2 py-4 active:text-red-400">x</button>
@@ -1158,7 +1210,7 @@ function GymDump() {
 
   // ── EDIT SESSION ──
   const EditSessionView = () => {
-    const week = data.program.weeks.find(w => w.id === editWeekId);
+    const week = prog.weeks.find(w => w.id === editWeekId);
     const session = week?.sessions.find(s => s.id === editSessionId); if (!session) return null;
     const [newExName, setNewExName] = useState("");
     const [newExSets, setNewExSets] = useState("3");
@@ -1176,21 +1228,21 @@ function GymDump() {
     const addFromProgram = (ex) => {
       if (session.exercises.find(e => e.name === ex.name)) return;
       const newEx = { ...ex, id: uid() };
-      const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: [...s.exercises, newEx] } : s) } : w);
-      save({ ...data, program: { weeks } });
+      const weeks = prog.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: [...s.exercises, newEx] } : s) } : w);
+      saveProg(weeks);
     };
 
     const addExercise = () => {
       if (!newExName.trim()) return;
       const ex = mkEx(newExName.trim(), parseInt(newExSets) || 3, parseInt(newExReps) || 8, newExTarget === "BW" ? "BW" : (parseFloat(newExTarget) || 0), parseFloat(newExInc) || 5, parseInt(newExNudge) || 2, newExNotes.trim(), newExProg);
-      const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: [...s.exercises, ex] } : s) } : w);
-      save({ ...data, program: { weeks } });
+      const weeks = prog.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: [...s.exercises, ex] } : s) } : w);
+      saveProg(weeks);
       setNewExName(""); setNewExNotes(""); setNewExTarget(""); setNewExSets("3"); setNewExReps("8"); setNewExInc("5"); setNewExNudge("2"); setNewExProg(true); setShowSuggestions(false);
     };
-    const removeExercise = exId => { const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: s.exercises.filter(e => e.id !== exId) } : s) } : w); save({ ...data, program: { weeks } }); };
-    const moveExercise = (exId, dir) => { const exs = [...session.exercises]; const idx = exs.findIndex(e => e.id === exId); if ((dir === -1 && idx === 0) || (dir === 1 && idx === exs.length - 1)) return; [exs[idx], exs[idx + dir]] = [exs[idx + dir], exs[idx]]; const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: exs } : s) } : w); save({ ...data, program: { weeks } }); };
+    const removeExercise = exId => { const weeks = prog.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: s.exercises.filter(e => e.id !== exId) } : s) } : w); saveProg(weeks); };
+    const moveExercise = (exId, dir) => { const exs = [...session.exercises]; const idx = exs.findIndex(e => e.id === exId); if ((dir === -1 && idx === 0) || (dir === 1 && idx === exs.length - 1)) return; [exs[idx], exs[idx + dir]] = [exs[idx + dir], exs[idx]]; const weeks = prog.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, exercises: exs } : s) } : w); saveProg(weeks); };
     return (<div><Header title={session.name} onBack={() => setView("program")} />
-      <Card className="mb-4"><p className="text-xs text-neutral-500 mb-1">Session Name</p><input defaultValue={session.name} key={editSessionId + "-name"} onBlur={e => { const val = e.target.value.trim(); if (val && val !== session.name) { const weeks = data.program.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, name: val } : s) } : w); save({ ...data, program: { weeks } }); } }} className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></Card>
+      <Card className="mb-4"><p className="text-xs text-neutral-500 mb-1">Session Name</p><input defaultValue={session.name} key={editSessionId + "-name"} onBlur={e => { const val = e.target.value.trim(); if (val && val !== session.name) { const weeks = prog.weeks.map(w => w.id === editWeekId ? { ...w, sessions: w.sessions.map(s => s.id === editSessionId ? { ...s, name: val } : s) } : w); saveProg(weeks); } }} className="w-full bg-neutral-800 text-white rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50" /></Card>
       <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Workouts</p>
       {session.exercises.map(ex => (<Card key={ex.id} className="mb-2"><div className="flex items-center justify-between"><div className="flex-1 min-w-0" onClick={() => { setEditExercise(ex); setView("editExerciseDetail"); }}><p className="text-white font-medium truncate">{ex.name}</p><div className="flex items-center gap-2 mt-0.5"><span className="text-neutral-500 text-xs">{ex.defaultSets}x{ex.defaultReps}</span>{(ex.targetWeight > 0 || ex.targetWeight === "BW") && <span className="text-emerald-400 text-xs font-mono">-> {ex.targetWeight === "BW" ? "BW" : ex.targetWeight + "lbs"}</span>}</div><Notes text={ex.notes} /></div><div className="flex items-center gap-1 flex-shrink-0"><button onClick={() => moveExercise(ex.id, -1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▲</button><button onClick={() => moveExercise(ex.id, 1)} className="text-neutral-600 px-2 py-1 text-sm active:text-white">▼</button><button onClick={() => removeExercise(ex.id)} className="text-neutral-600 px-2 py-1 active:text-red-400">x</button></div></div></Card>))}
       <Card className="mt-4 border border-dashed border-neutral-700">
@@ -1248,8 +1300,8 @@ function GymDump() {
       const rule = { weightIncrement: parseFloat(inc) || 5, targetSets: parseInt(tSets) || 3, targetReps: parseInt(tReps) || 8, sessionsBeforeNudge: parseInt(sNudge) || 2 };
       const oldName = editExercise.name;
       const newName = exName.trim() || oldName;
-      const weeks = data.program.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === oldName ? { ...e, name: newName, notes: exNotes.trim(), targetWeight: exTarget === "BW" ? "BW" : (parseFloat(exTarget) || 0), defaultSets: rule.targetSets, defaultReps: rule.targetReps, progressionRule: rule } : e) })) }));
-      save({ ...data, program: { weeks } }); setView("editSession");
+      const weeks = prog.weeks.map(w => ({ ...w, sessions: w.sessions.map(s => ({ ...s, exercises: s.exercises.map(e => e.name === oldName ? { ...e, name: newName, notes: exNotes.trim(), targetWeight: exTarget === "BW" ? "BW" : (parseFloat(exTarget) || 0), defaultSets: rule.targetSets, defaultReps: rule.targetReps, progressionRule: rule } : e) })) }));
+      saveProg(weeks); setView("editSession");
     };
     return (<div><Header title="Edit Workout" onBack={() => setView("editSession")} />
       <Card className="space-y-4">
@@ -1295,6 +1347,7 @@ function GymDump() {
           <p className="text-white font-semibold text-xs uppercase tracking-widest mb-1.5">Getting Started</p>
           <div className="bg-neutral-800 rounded-xl p-3 space-y-1.5 text-xs">
             <p>Tap <span className="text-emerald-400 font-medium">My Program</span> to build your workout program. Add weeks, sessions (e.g. "Upper 1", "Lower"), and exercises.</p>
+            <p>You can create <span className="text-neutral-200 font-medium">multiple programs</span> (e.g. ULU, PPL) and switch between them. Your logs and history are shared across all programs.</p>
             <p>Use <span className="text-emerald-400 font-medium">Pre-Set Sessions</span> for quick templates (Upper/Lower, Push/Pull/Legs, Full Body, Bro Split).</p>
             <p>Or skip the program — tap <span className="text-amber-400 font-medium">+ Quick Session</span> for a one-off workout.</p>
           </div>
@@ -1395,9 +1448,9 @@ function GymDump() {
       </div>
       <div className="space-y-2">
         <Btn variant="primary" onClick={() => importAsTemp(shareImport)} className="w-full">Save as Shared Session</Btn>
-        {data?.program?.weeks?.length > 0 && (<>
+        {prog.weeks.length > 0 && (<>
           <p className="text-neutral-500 text-xs text-center mt-3 mb-1">Or add to your program:</p>
-          {data.program.weeks.map(w => (
+          {prog.weeks.map(w => (
             <Btn key={w.id} variant="secondary" onClick={() => importToProgram(shareImport, w.id)} className="w-full text-sm">{w.name}</Btn>
           ))}
         </>)}
