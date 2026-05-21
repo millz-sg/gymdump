@@ -432,9 +432,9 @@ function GymDump() {
   };
   const getAllProgramExercises = () => {
     const seen = {}; const result = [];
-    prog.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => {
+    data.programs.forEach(p => p.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => {
       if (!seen[e.name]) { seen[e.name] = true; result.push(e); }
-    })));
+    }))));
     return result;
   };
   const removeQuickSession = (qsId, isCurrent) => {
@@ -684,7 +684,7 @@ function GymDump() {
   // ── HISTORY + EXERCISE HISTORY ──
   const HistoryView = () => {
     const allLogs = [...data.logs].sort((a, b) => new Date(b.date) - new Date(a.date));
-    const an = new Set(); prog.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => an.add(e.name)))); data.logs.forEach(l => l.exercises.forEach(e => { if (!e.skipped) an.add(e.name); }));
+    const an = new Set(); data.programs.forEach(p => p.weeks.forEach(w => w.sessions.forEach(s => s.exercises.forEach(e => an.add(e.name))))); data.logs.forEach(l => l.exercises.forEach(e => { if (!e.skipped) an.add(e.name); }));
     return (<div><Header title="History" onBack={() => setView("home")} />
       <div className="flex gap-1 mb-4 bg-neutral-900 rounded-xl p-1">
         <button onClick={() => setHistoryTab("sessions")} className={"flex-1 py-2 rounded-lg text-xs font-medium transition-all " + (historyTab === "sessions" ? "bg-emerald-600 text-white" : "text-neutral-500")}> By Session</button>
@@ -1043,7 +1043,7 @@ function GymDump() {
       saveProg(weeks);
       setShowAddSession(null); setAddSessionMode(null);
     };
-    const allSessions = prog.weeks.flatMap(w => w.sessions);
+    const allSessions = data.programs.flatMap(p => p.weeks.flatMap(w => w.sessions.map(s => ({ ...s, programName: p.name }))));
     const templates = [
       { name: "Upper / Lower / Upper", sessions: ["Upper 1", "Lower", "Upper 2"] },
       { name: "Push / Pull / Legs", sessions: ["Push", "Pull", "Legs"] },
@@ -1061,12 +1061,15 @@ function GymDump() {
         </button>
         {showPrograms && (<div className="mt-2 bg-neutral-900 rounded-xl overflow-hidden">
           {data.programs.map(p => (
-            <div key={p.id} className={"flex items-center justify-between px-3 py-3 border-b border-neutral-800 last:border-0 " + (p.id === prog.id ? "bg-emerald-500/10" : "")}>
-              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => switchProgram(p.id)}>
-                <input defaultValue={p.name} key={p.id + "-pname"} onClick={e => e.stopPropagation()} onBlur={e => { const val = e.target.value.trim(); if (val && val !== p.name) renameProgram(p.id, val); }} className={"text-sm font-medium bg-transparent outline-none w-full truncate " + (p.id === prog.id ? "text-emerald-400 focus:text-emerald-300" : "text-white focus:text-neutral-200")} />
+            <div key={p.id} className={"flex items-center gap-2 px-3 py-3 border-b border-neutral-800 last:border-0 " + (p.id === prog.id ? "bg-emerald-500/10" : "")}>
+              <button onClick={() => switchProgram(p.id)} className={"w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 " + (p.id === prog.id ? "border-emerald-500 bg-emerald-500" : "border-neutral-600 active:border-emerald-500")}>
+                {p.id === prog.id && <div className="w-2 h-2 bg-white rounded-full" />}
+              </button>
+              <div className="flex-1 min-w-0">
+                <input defaultValue={p.name} key={p.id + "-pname"} onBlur={e => { const val = e.target.value.trim(); if (val && val !== p.name) renameProgram(p.id, val); }} className={"text-sm font-medium bg-transparent outline-none w-full truncate " + (p.id === prog.id ? "text-emerald-400 focus:text-emerald-300" : "text-white focus:text-neutral-200")} />
                 <p className="text-neutral-500 text-xs">{p.weeks.length} week{p.weeks.length !== 1 ? "s" : ""} · {p.weeks.reduce((a, w) => a + w.sessions.length, 0)} sessions</p>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <button onClick={() => duplicateProgram(p)} className="text-neutral-600 text-xs px-2 py-1 active:text-white">Copy</button>
                 {data.programs.length > 1 && <button onClick={() => deleteProgram(p.id)} className="text-neutral-700 text-xs px-2 py-1 active:text-red-400">x</button>}
               </div>
@@ -1099,7 +1102,7 @@ function GymDump() {
             </div>)}
             {addSessionMode === "copy" && (<div>
               <p className="text-xs text-neutral-500 mb-2">Copy from:</p>
-              <div className="space-y-1">{allSessions.map(s => (<button key={s.id} onClick={() => copySession(week.id, s)} className="w-full text-left bg-neutral-800 rounded-xl py-2.5 px-3 text-sm text-white active:bg-neutral-700">{s.name} ({s.exercises.length} workouts)</button>))}</div>
+              <div className="space-y-1">{allSessions.map(s => (<button key={s.id} onClick={() => copySession(week.id, s)} className="w-full text-left bg-neutral-800 rounded-xl py-2.5 px-3 active:bg-neutral-700"><span className="text-white text-sm">{s.name}</span><span className="text-neutral-500 text-xs ml-2">{s.exercises.length} workouts · {s.programName}</span></button>))}</div>
               <button onClick={() => setAddSessionMode(null)} className="text-neutral-500 text-xs w-full text-center py-2 mt-1 active:text-white">‹ Back</button>
             </div>)}
             {addSessionMode === "template" && (<div>
